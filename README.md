@@ -73,13 +73,17 @@ npm run build
 
 ## Publish
 
-Update the package version first, then publish:
+Use GitHub Actions release workflow only (OIDC trusted publishing).
 
-```sh
-npm version <new-version>
-npm run build
-npm publish --dry-run
-npm publish
-```
+1. In npm package settings, add this repository workflow as a trusted publisher.
+2. Open **Actions → Release → Run workflow**.
+3. Select bump type (`patch` or `major`) and run on the default branch.
 
-Note: if that version was already published, `npm publish --dry-run` may still exit non-zero even when the tarball contents are fine. Beautiful little reminder that registries hold grudges.
+The workflow will automatically:
+
+- run `npm test`
+- run `npm run build`
+- bump version in `package.json` + `package-lock.json`
+- create and push the release commit and `v*` tag
+- publish to npm with `npm publish --provenance --access public`
+
