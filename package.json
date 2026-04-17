@@ -1,0 +1,27 @@
+{
+  "name": "opencode-roast-tone-plugin",
+  "version": "0.1.0",
+  "description": "Roast-tone server plugin for OpenCode",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/server.js",
+  "exports": {
+    "./server": "./dist/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "opencode": ">=1.4.6 <2"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
