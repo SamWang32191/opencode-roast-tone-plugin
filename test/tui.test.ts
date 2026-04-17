@@ -332,7 +332,7 @@ describe("tui entrypoint", () => {
     ]);
   });
 
-  it("shows a warning toast after rendering when the persisted state is malformed", async () => {
+  it("does not show a historical warning when startup self-heals a malformed state file", async () => {
     const configDir = await trackTempDir("tui-config-");
     const worktree = await trackTempDir("tui-worktree-");
     const context = { directory: worktree, worktree };
@@ -352,10 +352,35 @@ describe("tui entrypoint", () => {
     plugin.renderDialog();
 
     expect(plugin.dialogReplace).toHaveBeenCalledTimes(1);
-    expect(plugin.api.ui.toast).toHaveBeenCalledWith({
+    expect(plugin.api.ui.toast).not.toHaveBeenCalledWith({
       variant: "warning",
       title: "Settings issue detected",
       message: "Settings file is invalid. Showing fallback values.",
+    });
+  });
+
+  it("shows a warning toast after rendering when the current settings read is still unreadable", async () => {
+    const blockedPath = join(await trackTempDir("tui-blocked-"), "blocked-file");
+    const context = { directory: blockedPath, worktree: blockedPath };
+
+    await writeFile(blockedPath, "", "utf8");
+    process.env.OPENCODE_CONFIG_DIR = blockedPath;
+
+    const plugin = createApi(context, [{ id: TEST_PLUGIN_ID, enabled: true, active: true }]);
+
+    await expect(
+      tuiModule.tui(plugin.api as never, undefined, { id: TEST_PLUGIN_ID } as never),
+    ).resolves.toBeUndefined();
+
+    const command = plugin.commands().find((entry) => entry.title === "Roast Tone settings");
+    await command?.onSelect?.();
+    plugin.renderDialog();
+
+    expect(plugin.dialogReplace).toHaveBeenCalledTimes(1);
+    expect(plugin.api.ui.toast).toHaveBeenCalledWith({
+      variant: "warning",
+      title: "Settings issue detected",
+      message: "Settings file couldn't be read. Showing fallback values.",
     });
   });
 

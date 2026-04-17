@@ -31,7 +31,6 @@ const tui: TuiPlugin = async (api, _options, meta) => {
     directory: api.state.path.directory,
     worktree: api.state.path.worktree,
   };
-  let pendingWarning = (await readEnabledStateResult(context)).warning;
 
   const [value, setValue] = createSignal<SettingsState>({ roastEnabled: true });
   const [savingField, setSavingField] = createSignal<Field | undefined>(undefined);
@@ -63,7 +62,6 @@ const tui: TuiPlugin = async (api, _options, meta) => {
 
   const showSettings = async () => {
     const result = await readEnabledStateResult(context);
-    const warning = result.warning ?? pendingWarning;
 
     setValue({ roastEnabled: result.state.roastEnabled });
     setSavingField(undefined);
@@ -72,13 +70,12 @@ const tui: TuiPlugin = async (api, _options, meta) => {
       <SettingsDialog api={api} value={value} savingField={savingField} flip={flip} />
     ));
 
-    if (warning) {
+    if (result.warning) {
       api.ui.toast({
         variant: "warning",
         title: "Settings issue detected",
-        message: warningMessages[warning],
+        message: warningMessages[result.warning],
       });
-      pendingWarning = undefined;
     }
   };
 
