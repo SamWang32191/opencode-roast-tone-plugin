@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import * as enabledState from "../src/enabled-state.js";
 import { resolveStateFile } from "../src/enabled-state.js";
 
 vi.mock("@opentui/solid/jsx-runtime", () => ({
@@ -414,6 +415,76 @@ describe("tui entrypoint", () => {
       title: "Couldn't save setting",
       message: "Failed to update Tone enabled.",
     });
+  });
+
+  it("preserves the optimistic value and dialog lock when reopened during an in-flight save", async () => {
+    const configDir = await trackTempDir("tui-config-");
+    const worktree = await trackTempDir("tui-worktree-");
+    const context = { directory: worktree, worktree };
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+
+    let resolveWrite!: () => void;
+    const writePending = new Promise<void>((resolve) => {
+      resolveWrite = resolve;
+    });
+    const originalWriteRoastEnabledState = enabledState.writeRoastEnabledState;
+    const writeRoastEnabledState = vi
+      .spyOn(enabledState, "writeRoastEnabledState")
+      .mockImplementation(async (nextContext, roastEnabled) => {
+        expect(nextContext).toEqual(context);
+        expect(roastEnabled).toBe(false);
+        await writePending;
+        await originalWriteRoastEnabledState(nextContext, roastEnabled);
+      });
+
+    const plugin = createApi(context, [{ id: TEST_PLUGIN_ID, enabled: true, active: true }]);
+
+    await tuiModule.tui(plugin.api as never, undefined, { id: TEST_PLUGIN_ID } as never);
+
+    const command = plugin.commands().find((entry) => entry.title === "Roast Tone settings");
+    await command?.onSelect?.();
+
+    const firstDialog = plugin.renderDialog();
+    const savePromise = firstDialog.onSelect?.(firstDialog.options[0]!);
+
+    await Promise.resolve();
+
+    expect(plugin.renderDialog().options).toEqual([
+      expect.objectContaining({
+        value: "roastEnabled",
+        footer: "Saving...",
+        disabled: true,
+      }),
+    ]);
+
+    await command?.onSelect?.();
+
+    expect(plugin.renderDialog().options).toEqual([
+      expect.objectContaining({
+        value: "roastEnabled",
+        footer: "Saving...",
+        disabled: true,
+      }),
+    ]);
+    expect(writeRoastEnabledState).toHaveBeenCalledTimes(1);
+
+    resolveWrite();
+    await savePromise;
+
+    expect(plugin.renderDialog().options).toEqual([
+      expect.objectContaining({
+        value: "roastEnabled",
+        footer: "OFF",
+        disabled: false,
+      }),
+    ]);
+    await expect(readStateFile(context)).resolves.toEqual({
+      pluginEnabled: true,
+      roastEnabled: false,
+    });
+
+    writeRoastEnabledState.mockRestore();
   });
 
   it("only writes pluginEnabled=false when dispose happens after the plugin is disabled", async () => {

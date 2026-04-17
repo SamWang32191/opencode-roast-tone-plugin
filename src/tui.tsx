@@ -61,6 +61,14 @@ const tui: TuiPlugin = async (api, _options, meta) => {
   };
 
   const showSettings = async () => {
+    if (savingField()) {
+      api.ui.dialog.setSize("medium");
+      api.ui.dialog.replace(() => (
+        <SettingsDialog api={api} value={value} savingField={savingField} flip={flip} />
+      ));
+      return;
+    }
+
     const result = await readEnabledStateResult(context);
 
     setValue({ roastEnabled: result.state.roastEnabled });
