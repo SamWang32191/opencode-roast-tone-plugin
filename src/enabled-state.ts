@@ -165,6 +165,7 @@ const createResultFromParsedState = (raw: PersistedEnabledState): ReadEnabledSta
     state: createDefaultEnabledState(),
     kind: "invalid-file",
     warning: "invalid-file",
+    raw,
   };
 };
 

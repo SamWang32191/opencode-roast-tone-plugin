@@ -312,6 +312,22 @@ describe("enabled state helpers", () => {
     });
   });
 
+  it("preserves raw unknown fields when parseable JSON has no known keys", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(configDir, JSON.stringify({ futureSetting: true }));
+
+    await expect(
+      readEnabledStateResult({ directory: configDir, worktree: configDir }),
+    ).resolves.toEqual({
+      kind: "invalid-file",
+      warning: "invalid-file",
+      state: { pluginEnabled: true, roastEnabled: true },
+      raw: { futureSetting: true },
+    });
+  });
+
   it("reports unreadable files as an unreadable-file warning", async () => {
     const blockedPath = join(await trackTempDir("enabled-blocked-"), "blocked-file");
 
@@ -382,6 +398,24 @@ describe("enabled state helpers", () => {
       pluginEnabled: true,
       roastEnabled: false,
       futureSetting: "keep-me",
+    });
+  });
+
+  it("writeRoastEnabledState preserves unknown top-level fields when they are the only parseable keys", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+    const context = { directory: configDir, worktree: configDir };
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(configDir, JSON.stringify({ futureSetting: true }));
+
+    await writeRoastEnabledState(context, false);
+
+    const contents = await readFile(resolveStateFile(context), "utf8");
+
+    expect(JSON.parse(contents)).toEqual({
+      futureSetting: true,
+      pluginEnabled: true,
+      roastEnabled: false,
     });
   });
 
