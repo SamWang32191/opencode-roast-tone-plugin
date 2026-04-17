@@ -4,6 +4,59 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resolveStateFile } from "../src/enabled-state.js";
+
+vi.mock("@opentui/solid/jsx-runtime", () => ({
+  Fragment: Symbol.for("fragment"),
+  jsx: (type: unknown, props: Record<string, unknown>) => {
+    return typeof type === "function" ? type(props) : { type, props };
+  },
+  jsxs: (type: unknown, props: Record<string, unknown>) => {
+    return typeof type === "function" ? type(props) : { type, props };
+  },
+}));
+
+vi.mock("@opentui/solid", () => ({
+  createComponent: (component: (props: Record<string, unknown>) => unknown, props: Record<string, unknown>) => {
+    return component(props);
+  },
+}));
+
+vi.mock("../src/settings-dialog.js", () => ({
+  SettingsDialog: (props: {
+    api: {
+      ui: {
+        DialogSelect: (dialogProps: DialogSelectProps) => DialogSelectProps;
+      };
+    };
+    value: () => { roastEnabled: boolean };
+    savingField: () => string | undefined;
+    flip: (field: "roastEnabled") => void | Promise<void>;
+  }) => {
+    return props.api.ui.DialogSelect({
+      title: "Roast Tone settings",
+      placeholder: "Filter settings",
+      current: "roastEnabled",
+      options: [
+        {
+          title: "Tone enabled",
+          value: "roastEnabled",
+          description: "Apply roast tone to future messages.",
+          category: "Tone",
+          footer: props.savingField() === "roastEnabled" ? "Saving..." : props.value().roastEnabled ? "ON" : "OFF",
+          disabled: props.savingField() !== undefined,
+        },
+      ],
+      onSelect: async (option) => {
+        if (option.value !== "roastEnabled") {
+          return;
+        }
+
+        await props.flip("roastEnabled");
+      },
+    });
+  },
+}));
+
 import tuiModule from "../src/tui.js";
 
 const originalOpencodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
@@ -26,6 +79,7 @@ type DisposeHandler = () => void | Promise<void>;
 type RegisteredCommand = {
   title: string;
   value: string;
+  description?: string;
   slash?: {
     name: string;
     aliases?: string[];
@@ -37,12 +91,18 @@ type DialogSelectOption = {
   title: string;
   value: string;
   description?: string;
+  category?: string;
+  footer?: string;
+  disabled?: boolean;
 };
 
 type DialogSelectProps = {
   title: string;
+  placeholder?: string;
   current?: string;
   options: DialogSelectOption[];
+  onFilter?: (query: string) => void;
+  onMove?: (option: DialogSelectOption) => void;
   onSelect?: (option: DialogSelectOption) => void | Promise<void>;
 };
 
@@ -151,7 +211,15 @@ const createApi = (context: EnabledStateContext, initialPlugins: PluginStatus[] 
         throw new Error("Expected dialog to be rendered");
       }
 
-      return dialogRender() as DialogSelectProps;
+      dialogRender();
+
+      const call = DialogSelect.mock.calls[DialogSelect.mock.calls.length - 1]?.[0];
+
+      if (!call) {
+        throw new Error("Expected DialogSelect to be rendered");
+      }
+
+      return call as DialogSelectProps;
     },
     dialogReplace,
     DialogSelect,
@@ -176,7 +244,7 @@ afterEach(async () => {
 });
 
 describe("tui entrypoint", () => {
-  it("registers the Roast Tone settings command in the command palette", async () => {
+  it("registers the Roast Tone settings command with a clarifying description", async () => {
     const configDir = await trackTempDir("tui-config-");
     const worktree = await trackTempDir("tui-worktree-");
     const context = { directory: worktree, worktree };
@@ -191,13 +259,11 @@ describe("tui entrypoint", () => {
       expect.arrayContaining([
         expect.objectContaining({
           title: "Roast Tone settings",
+          description: "Enable or disable roast tone without disabling the plugin",
           value: "roast-tone-settings",
           category: "Plugin",
         }),
       ]),
-    );
-    expect(plugin.commands().find((command) => command.title === "Roast Tone settings")?.slash).toBe(
-      undefined,
     );
   });
 
@@ -236,7 +302,7 @@ describe("tui entrypoint", () => {
     });
   });
 
-  it("opens the settings dialog and toggles roastEnabled", async () => {
+  it("opens the TSX settings dialog at medium size", async () => {
     const configDir = await trackTempDir("tui-config-");
     const worktree = await trackTempDir("tui-worktree-");
     const context = { directory: worktree, worktree };
@@ -249,35 +315,80 @@ describe("tui entrypoint", () => {
 
     const command = plugin.commands().find((entry) => entry.title === "Roast Tone settings");
 
-    expect(command).toBeDefined();
-
     await command?.onSelect?.();
 
-    expect(plugin.dialogReplace).toHaveBeenCalledTimes(1);
-
-    const dialog = plugin.renderDialog();
-
-    expect(plugin.DialogSelect).toHaveBeenCalledTimes(1);
-    expect(dialog.title).toBe("Roast Tone setting");
-    expect(dialog.options).toEqual([
+    expect(plugin.api.ui.dialog.setSize).toHaveBeenCalledWith("medium");
+    expect(plugin.renderDialog()).toMatchObject({
+      title: "Roast Tone settings",
+      placeholder: "Filter settings",
+      current: "roastEnabled",
+    });
+    expect(plugin.renderDialog().options).toEqual([
       expect.objectContaining({
-        title: "✅ Enabled",
-        value: "roast-enabled",
-      }),
-      expect.objectContaining({
-        title: "⏸ Disabled",
-        value: "roast-disabled",
+        title: "Tone enabled",
+        category: "Tone",
+        footer: "ON",
       }),
     ]);
-    expect(dialog.current).toBe("roast-enabled");
+  });
 
-    await dialog.onSelect?.(dialog.options[1]!);
+  it("shows a warning toast after rendering when the persisted state is malformed", async () => {
+    const configDir = await trackTempDir("tui-config-");
+    const worktree = await trackTempDir("tui-worktree-");
+    const context = { directory: worktree, worktree };
 
-    await expect(readStateFile(context)).resolves.toEqual({
-      pluginEnabled: true,
-      roastEnabled: false,
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeFile(resolveStateFile(context), "not-json-at-all", "utf8").catch(async () => {
+      await mkdir(dirname(resolveStateFile(context)), { recursive: true });
+      await writeFile(resolveStateFile(context), "not-json-at-all", "utf8");
     });
-    expect(plugin.dialogReplace).toHaveBeenCalledTimes(2);
+
+    const plugin = createApi(context, [{ id: TEST_PLUGIN_ID, enabled: true, active: true }]);
+
+    await tuiModule.tui(plugin.api as never, undefined, { id: TEST_PLUGIN_ID } as never);
+
+    const command = plugin.commands().find((entry) => entry.title === "Roast Tone settings");
+    await command?.onSelect?.();
+    plugin.renderDialog();
+
+    expect(plugin.dialogReplace).toHaveBeenCalledTimes(1);
+    expect(plugin.api.ui.toast).toHaveBeenCalledWith({
+      variant: "warning",
+      title: "Settings issue detected",
+      message: "Settings file is invalid. Showing fallback values.",
+    });
+  });
+
+  it("rolls back and shows an error toast when saving roastEnabled fails", async () => {
+    const blockedPath = join(await trackTempDir("tui-blocked-"), "blocked-file");
+    const context = { directory: blockedPath, worktree: blockedPath };
+
+    await writeFile(blockedPath, "", "utf8");
+    process.env.OPENCODE_CONFIG_DIR = blockedPath;
+
+    const plugin = createApi(context, [{ id: TEST_PLUGIN_ID, enabled: true, active: true }]);
+
+    await expect(
+      tuiModule.tui(plugin.api as never, undefined, { id: TEST_PLUGIN_ID } as never),
+    ).resolves.toBeUndefined();
+
+    const command = plugin.commands().find((entry) => entry.title === "Roast Tone settings");
+    await command?.onSelect?.();
+
+    const dialog = plugin.renderDialog();
+    await dialog.onSelect?.(dialog.options[0]!);
+
+    expect(plugin.renderDialog().options).toEqual([
+      expect.objectContaining({
+        value: "roastEnabled",
+        footer: "ON",
+      }),
+    ]);
+    expect(plugin.api.ui.toast).toHaveBeenCalledWith({
+      variant: "error",
+      title: "Couldn't save setting",
+      message: "Failed to update Tone enabled.",
+    });
   });
 
   it("only writes pluginEnabled=false when dispose happens after the plugin is disabled", async () => {
@@ -318,5 +429,23 @@ describe("tui entrypoint", () => {
       pluginEnabled: true,
       roastEnabled: false,
     });
+  });
+
+  it("catches lifecycle write failures instead of rejecting startup or dispose", async () => {
+    const blockedPath = join(await trackTempDir("tui-blocked-"), "blocked-file");
+    const context = { directory: blockedPath, worktree: blockedPath };
+
+    await writeFile(blockedPath, "", "utf8");
+    process.env.OPENCODE_CONFIG_DIR = blockedPath;
+
+    const plugin = createApi(context, [{ id: TEST_PLUGIN_ID, enabled: true, active: true }]);
+
+    await expect(
+      tuiModule.tui(plugin.api as never, undefined, { id: TEST_PLUGIN_ID } as never),
+    ).resolves.toBeUndefined();
+
+    plugin.setPlugins([{ id: TEST_PLUGIN_ID, enabled: false, active: false }]);
+
+    await expect(plugin.dispose()).resolves.toBeUndefined();
   });
 });
