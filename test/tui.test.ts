@@ -192,6 +192,7 @@ describe("tui entrypoint", () => {
         expect.objectContaining({
           title: "Roast Tone settings",
           value: "roast-tone-settings",
+          category: "Plugin",
         }),
       ]),
     );
