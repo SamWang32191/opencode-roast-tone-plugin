@@ -13,7 +13,24 @@ export type EnabledState = {
   roastEnabled: boolean;
 };
 
-type PersistedEnabledState = {
+export type ReadWarning = "invalid-file" | "unreadable-file" | "partial-invalid-fields";
+
+export type ReadStateKind =
+  | "missing"
+  | "legacy"
+  | "new-format-ok"
+  | "invalid-file"
+  | "unreadable-file"
+  | "partial-invalid-fields";
+
+export type ReadEnabledStateResult = {
+  state: EnabledState;
+  kind: ReadStateKind;
+  warning?: ReadWarning;
+  raw?: Record<string, unknown>;
+};
+
+type PersistedEnabledState = Record<string, unknown> & {
   enabled?: unknown;
   pluginEnabled?: unknown;
   roastEnabled?: unknown;
@@ -95,7 +112,7 @@ const createDefaultEnabledState = (): EnabledState => ({
 });
 
 const isPersistedEnabledState = (value: unknown): value is PersistedEnabledState => {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
 const hasNewEnabledStateFields = (state: PersistedEnabledState) => {
@@ -103,73 +120,103 @@ const hasNewEnabledStateFields = (state: PersistedEnabledState) => {
 };
 
 const parsePersistedEnabledState = (contents: string): PersistedEnabledState | undefined => {
-  try {
-    const parsed = JSON.parse(contents) as unknown;
+  const parsed = JSON.parse(contents) as unknown;
 
-    return isPersistedEnabledState(parsed) ? parsed : undefined;
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return undefined;
-    }
-
-    throw error;
-  }
+  return isPersistedEnabledState(parsed) ? parsed : undefined;
 };
 
-const parseEnabledState = (contents: string): EnabledState => {
-  try {
-    const parsed = parsePersistedEnabledState(contents);
+const createResultFromParsedState = (raw: PersistedEnabledState): ReadEnabledStateResult => {
+  if (hasNewEnabledStateFields(raw)) {
+    const pluginEnabledValid = typeof raw.pluginEnabled === "boolean";
+    const roastEnabledValid = typeof raw.roastEnabled === "boolean";
+    const state = {
+      pluginEnabled: pluginEnabledValid
+        ? (raw.pluginEnabled as boolean)
+        : DEFAULT_ENABLED_STATE.pluginEnabled,
+      roastEnabled: roastEnabledValid
+        ? (raw.roastEnabled as boolean)
+        : DEFAULT_ENABLED_STATE.roastEnabled,
+    } satisfies EnabledState;
 
-    if (!parsed) {
-      return createDefaultEnabledState();
+    if (pluginEnabledValid && roastEnabledValid) {
+      return { state, kind: "new-format-ok", raw };
     }
 
-    if (hasNewEnabledStateFields(parsed)) {
-      return {
-        pluginEnabled:
-          typeof parsed.pluginEnabled === "boolean"
-            ? parsed.pluginEnabled
-            : DEFAULT_ENABLED_STATE.pluginEnabled,
-        roastEnabled:
-          typeof parsed.roastEnabled === "boolean"
-            ? parsed.roastEnabled
-            : DEFAULT_ENABLED_STATE.roastEnabled,
-      };
-    }
-
-    if (typeof parsed.enabled === "boolean") {
-      return {
-        pluginEnabled: parsed.enabled,
-        roastEnabled: parsed.enabled,
-      };
-    }
-
-    return createDefaultEnabledState();
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return createDefaultEnabledState();
-    }
-
-    throw error;
+    return {
+      state,
+      kind: "partial-invalid-fields",
+      warning: "partial-invalid-fields",
+      raw,
+    };
   }
+
+  if (typeof raw.enabled === "boolean") {
+      return {
+        state: {
+          pluginEnabled: raw.enabled as boolean,
+          roastEnabled: raw.enabled as boolean,
+        },
+        kind: "legacy",
+        raw,
+      };
+  }
+
+  return {
+    state: createDefaultEnabledState(),
+    kind: "invalid-file",
+    warning: "invalid-file",
+  };
 };
 
-export const readEnabledState = async (context: EnabledStateContext) => {
+export const readEnabledStateResult = async (
+  context: EnabledStateContext,
+): Promise<ReadEnabledStateResult> => {
   const stateFile = resolveStateFile(context);
 
   try {
     const contents = await readFile(stateFile, "utf8");
 
-    return parseEnabledState(contents);
+    try {
+      const parsed = parsePersistedEnabledState(contents);
+
+      if (!parsed) {
+        return {
+          state: createDefaultEnabledState(),
+          kind: "invalid-file",
+          warning: "invalid-file",
+        };
+      }
+
+      return createResultFromParsedState(parsed);
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return {
+          state: createDefaultEnabledState(),
+          kind: "invalid-file",
+          warning: "invalid-file",
+        };
+      }
+
+      throw error;
+    }
   } catch (error) {
     if (isFileNotFoundError(error)) {
-      return createDefaultEnabledState();
+      return {
+        state: createDefaultEnabledState(),
+        kind: "missing",
+      };
     }
 
-    // Non-ENOENT read failures are still non-fatal by product decision,
-    // but we handle them separately so the expected fallback paths stay explicit.
-    return createDefaultEnabledState();
+    return {
+      state: createDefaultEnabledState(),
+      kind: "unreadable-file",
+      warning: "unreadable-file",
+    };
   }
+};
+
+export const readEnabledState = async (context: EnabledStateContext) => {
+  return (await readEnabledStateResult(context)).state;
 };
 
 export const readEffectiveEnabledState = async (context: EnabledStateContext) => {
@@ -178,27 +225,39 @@ export const readEffectiveEnabledState = async (context: EnabledStateContext) =>
   return state.pluginEnabled && state.roastEnabled;
 };
 
-const writeStateFile = async (context: EnabledStateContext, state: object) => {
+const writeStateFile = async (context: EnabledStateContext, state: Record<string, unknown>) => {
   const stateFile = resolveStateFile(context);
 
   await mkdir(dirname(stateFile), { recursive: true });
   await writeFile(stateFile, JSON.stringify(state), "utf8");
 };
 
+const createPersistedState = (
+  result: ReadEnabledStateResult,
+  state: EnabledState,
+): Record<string, unknown> => {
+  const persisted = result.raw ? { ...result.raw } : {};
+
+  delete persisted.enabled;
+
+  return {
+    ...persisted,
+    pluginEnabled: state.pluginEnabled,
+    roastEnabled: state.roastEnabled,
+  };
+};
+
 const writeMergedEnabledState = async (
   context: EnabledStateContext,
   nextState: Partial<EnabledState>,
 ) => {
-  try {
-    const currentState = await readEnabledState(context);
+  const current = await readEnabledStateResult(context);
+  const mergedState = {
+    ...current.state,
+    ...nextState,
+  } satisfies EnabledState;
 
-    await writeStateFile(context, {
-      ...currentState,
-      ...nextState,
-    });
-  } catch {
-    // best-effort only
-  }
+  await writeStateFile(context, createPersistedState(current, mergedState));
 };
 
 export const writePluginEnabledState = async (
@@ -216,28 +275,13 @@ export const writeRoastEnabledState = async (
 };
 
 export const writeEnabledState = async (context: EnabledStateContext, enabled: boolean) => {
-  try {
-    const stateFile = resolveStateFile(context);
-    const contents = await readFile(stateFile, "utf8").catch((error: unknown) => {
-      if (isFileNotFoundError(error)) {
-        return undefined;
-      }
+  const current = await readEnabledStateResult(context);
 
-      throw error;
-    });
-
-    const parsedState = typeof contents === "string" ? parsePersistedEnabledState(contents) : undefined;
-
-    if (parsedState && hasNewEnabledStateFields(parsedState)) {
-      await writeStateFile(context, {
-        pluginEnabled: enabled,
-        roastEnabled: enabled,
-      });
-      return;
-    }
-
-    await writeStateFile(context, { enabled });
-  } catch {
-    // best-effort only
-  }
+  await writeStateFile(
+    context,
+    createPersistedState(current, {
+      pluginEnabled: enabled,
+      roastEnabled: enabled,
+    }),
+  );
 };

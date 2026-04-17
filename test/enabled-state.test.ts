@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   readEffectiveEnabledState,
   readEnabledState,
+  readEnabledStateResult,
   resolveStateFile,
   writeEnabledState,
   writePluginEnabledState,
@@ -225,7 +226,7 @@ describe("enabled state helpers", () => {
     const stateFile = resolveStateFile(context);
     const contents = await readFile(stateFile, "utf8");
 
-    expect(JSON.parse(contents)).toEqual({ enabled: false });
+    expect(JSON.parse(contents)).toEqual({ pluginEnabled: false, roastEnabled: false });
   });
 
   it("writeEnabledState keeps dual-state shape when the existing file uses the new format", async () => {
@@ -279,14 +280,136 @@ describe("enabled state helpers", () => {
     expect(JSON.parse(contents)).toEqual({ pluginEnabled: false, roastEnabled: false });
   });
 
-  it("swallows write errors because runtime drama is not a feature", async () => {
+  it("reports legacy state without warning", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(configDir, JSON.stringify({ enabled: false }));
+
+    await expect(
+      readEnabledStateResult({ directory: configDir, worktree: configDir }),
+    ).resolves.toEqual({
+      kind: "legacy",
+      state: { pluginEnabled: false, roastEnabled: false },
+      warning: undefined,
+      raw: { enabled: false },
+    });
+  });
+
+  it("reports malformed JSON as an invalid-file warning", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(configDir, "not-json-at-all");
+
+    await expect(
+      readEnabledStateResult({ directory: configDir, worktree: configDir }),
+    ).resolves.toEqual({
+      kind: "invalid-file",
+      warning: "invalid-file",
+      state: { pluginEnabled: true, roastEnabled: true },
+      raw: undefined,
+    });
+  });
+
+  it("reports unreadable files as an unreadable-file warning", async () => {
     const blockedPath = join(await trackTempDir("enabled-blocked-"), "blocked-file");
 
     await writeFile(blockedPath, "", "utf8");
     process.env.OPENCODE_CONFIG_DIR = blockedPath;
 
     await expect(
-      writeEnabledState({ directory: blockedPath, worktree: blockedPath }, true),
-    ).resolves.toBeUndefined();
+      readEnabledStateResult({ directory: blockedPath, worktree: blockedPath }),
+    ).resolves.toMatchObject({
+      kind: "unreadable-file",
+      warning: "unreadable-file",
+      state: { pluginEnabled: true, roastEnabled: true },
+    });
+  });
+
+  it("reports partial-invalid-fields when new-format values need fallback", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(
+      configDir,
+      JSON.stringify({ pluginEnabled: false, roastEnabled: "broken", futureSetting: true }),
+    );
+
+    await expect(
+      readEnabledStateResult({ directory: configDir, worktree: configDir }),
+    ).resolves.toMatchObject({
+      kind: "partial-invalid-fields",
+      warning: "partial-invalid-fields",
+      state: { pluginEnabled: false, roastEnabled: true },
+      raw: { pluginEnabled: false, roastEnabled: "broken", futureSetting: true },
+    });
+  });
+
+  it("writeEnabledState normalizes legacy files and preserves parseable unknown fields", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+    const context = { directory: configDir, worktree: configDir };
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(configDir, JSON.stringify({ enabled: false, futureSetting: true }));
+
+    await writeEnabledState(context, true);
+
+    const contents = await readFile(resolveStateFile(context), "utf8");
+
+    expect(JSON.parse(contents)).toEqual({
+      futureSetting: true,
+      pluginEnabled: true,
+      roastEnabled: true,
+    });
+  });
+
+  it("writeRoastEnabledState preserves unknown top-level fields from parseable JSON", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+    const context = { directory: configDir, worktree: configDir };
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(
+      configDir,
+      JSON.stringify({ pluginEnabled: true, roastEnabled: true, futureSetting: "keep-me" }),
+    );
+
+    await writeRoastEnabledState(context, false);
+
+    const contents = await readFile(resolveStateFile(context), "utf8");
+
+    expect(JSON.parse(contents)).toEqual({
+      pluginEnabled: true,
+      roastEnabled: false,
+      futureSetting: "keep-me",
+    });
+  });
+
+  it("writeRoastEnabledState self-heals malformed JSON into the new format", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+    const context = { directory: configDir, worktree: configDir };
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(configDir, "not-json-at-all");
+
+    await writeRoastEnabledState(context, false);
+
+    const contents = await readFile(resolveStateFile(context), "utf8");
+
+    expect(JSON.parse(contents)).toEqual({
+      pluginEnabled: true,
+      roastEnabled: false,
+    });
+  });
+
+  it("throws write errors instead of swallowing them", async () => {
+    const blockedPath = join(await trackTempDir("enabled-blocked-"), "blocked-file");
+
+    await writeFile(blockedPath, "", "utf8");
+    process.env.OPENCODE_CONFIG_DIR = blockedPath;
+
+    await expect(
+      writeRoastEnabledState({ directory: blockedPath, worktree: blockedPath }, false),
+    ).rejects.toBeDefined();
   });
 });
