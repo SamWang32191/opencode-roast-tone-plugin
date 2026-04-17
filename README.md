@@ -24,13 +24,33 @@ If you would rather configure plugins directly, use:
 { "plugin": ["opencode-roast-tone-plugin@latest"] }
 ```
 
-## Enable or disable in OpenCode
+## TUI controls in OpenCode
 
-After installation, open OpenCode's **Plugins** dialog and toggle `opencode-roast-tone-plugin` on or off there.
+This plugin now has **two** TUI control surfaces:
 
-- **Enabled:** OpenCode injects the roast-tone instruction into future message payloads, so new requests keep the sharp roast-comic tone.
-- **Disabled:** OpenCode stops injecting that instruction for future requests, so new messages go out without the roast-tone add-on.
-- The enabled/disabled state is persisted, so the toggle stays where you left it across restarts.
+1. **Built-in Plugins dialog**: controls whether the whole `opencode-roast-tone-plugin` package is enabled.
+2. **`Roast Tone settings` command**: controls only whether roast-tone injection is enabled while the plugin itself stays installed and active.
+
+Open the command palette and run **`Roast Tone settings`** to manage the roast-tone injection toggle.
+
+### State combinations
+
+- **Plugin enabled + roast tone enabled**: the plugin is on, and future user messages get the roast-tone instruction injected.
+- **Plugin enabled + roast tone disabled**: the plugin stays on, but future user messages are sent without the roast-tone instruction.
+- **Plugin disabled**: the plugin is off from the Plugins dialog, so no roast-tone injection runs at all.
+
+### Persistence
+
+The state is persisted across restarts.
+
+It uses the existing config-root resolution order:
+
+1. `OPENCODE_CONFIG_DIR`
+2. the nearest workspace `.opencode` directory inside the current worktree
+3. `XDG_CONFIG_HOME/opencode`
+4. `~/.config/opencode`
+
+That means both the plugin-level enabled state and the roast-tone injection state continue to follow the same config-root behavior OpenCode already uses.
 
 ## Local development
 

@@ -1,6 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin";
 
-import { readEnabledState } from "./enabled-state.js";
+import { readEffectiveEnabledState } from "./enabled-state.js";
 import { TONE } from "./tone.js";
 
 const prependTonePart = (parts: unknown[]) => {
@@ -9,7 +9,7 @@ const prependTonePart = (parts: unknown[]) => {
 
 const RoastTonePlugin: Plugin = async (input) => ({
   "experimental.chat.messages.transform": async (_transformInput, output) => {
-    const enabled = await readEnabledState({
+    const enabled = await readEffectiveEnabledState({
       directory: input.directory,
       worktree: input.worktree,
     });

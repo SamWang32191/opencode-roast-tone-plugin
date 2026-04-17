@@ -274,10 +274,54 @@ describe("server plugin", () => {
     expect(output.messages[0].parts[0]).toEqual({ type: "text", text: TONE });
   });
 
-  it("does not inject when enabled state is false", async () => {
+  it("does not inject when legacy enabled state is false", async () => {
     const configDir = await trackTempDir("server-config-");
     process.env.OPENCODE_CONFIG_DIR = configDir;
     await writeStateFile(configDir, JSON.stringify({ enabled: false }));
+
+    const transform = await createTransform();
+    const output = createOutput([
+      {
+        info: createUserInfo(),
+        parts: [createTextPart("hello")],
+      },
+    ]);
+
+    await transform(TRANSFORM_INPUT, output);
+
+    expect(output.messages[0].parts).toHaveLength(1);
+    expect(output.messages[0].parts[0]).toMatchObject({ type: "text", text: "hello" });
+  });
+
+  it("does not inject when pluginEnabled is false", async () => {
+    const configDir = await trackTempDir("server-config-");
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeStateFile(
+      configDir,
+      JSON.stringify({ pluginEnabled: false, roastEnabled: true }),
+    );
+
+    const transform = await createTransform();
+    const output = createOutput([
+      {
+        info: createUserInfo(),
+        parts: [createTextPart("hello")],
+      },
+    ]);
+
+    await transform(TRANSFORM_INPUT, output);
+
+    expect(output.messages[0].parts).toHaveLength(1);
+    expect(output.messages[0].parts[0]).toMatchObject({ type: "text", text: "hello" });
+  });
+
+  it("does not inject when roastEnabled is false", async () => {
+    const configDir = await trackTempDir("server-config-");
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeStateFile(
+      configDir,
+      JSON.stringify({ pluginEnabled: true, roastEnabled: false }),
+    );
 
     const transform = await createTransform();
     const output = createOutput([
