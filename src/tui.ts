@@ -8,6 +8,7 @@ import {
 
 const SETTINGS_COMMAND_VALUE = "roast-tone-settings";
 const ROAST_ENABLED_OPTION_VALUE = "roast-enabled";
+const PLUGIN_COMMAND_CATEGORY = "Plugin";
 
 const tui: TuiPlugin = async (api, _options, meta) => {
   const context = {
@@ -47,6 +48,7 @@ const tui: TuiPlugin = async (api, _options, meta) => {
     {
       title: "Roast Tone settings",
       value: SETTINGS_COMMAND_VALUE,
+      category: PLUGIN_COMMAND_CATEGORY,
       onSelect: showSettings,
     },
   ]);
