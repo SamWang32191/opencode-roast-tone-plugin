@@ -73,26 +73,17 @@ npm run build
 
 ## Publish
 
-### Preferred: GitHub Actions release (OIDC trusted publishing)
+Use GitHub Actions release workflow only (OIDC trusted publishing).
 
-This repo includes `.github/workflows/release.yml` that publishes to npm with **trusted publishing (OIDC)**, so no long-lived `NPM_TOKEN` secret is required.
+1. In npm package settings, add this repository workflow as a trusted publisher.
+2. Open **Actions → Release → Run workflow**.
+3. Select bump type (`patch`, `minor`, or `major`) and run.
 
-1. In npm package settings, add this GitHub repository/workflow as a trusted publisher.
-2. Bump version locally and push:
+The workflow will automatically:
 
-```sh
-npm version <new-version>
-git push --follow-tags
-```
+- run `npm test`
+- run `npm run build`
+- bump version in `package.json` + `package-lock.json`
+- create and push the release commit and `v*` tag
+- publish to npm with `npm publish --provenance --access public`
 
-3. Push a matching `v*` tag (for example `v0.1.4`) to trigger release. The workflow validates tag version matches `package.json` and runs `npm publish --provenance --access public`.
-
-### Manual fallback
-
-```sh
-npm run build
-npm publish --dry-run
-npm publish
-```
-
-Note: if that version was already published, `npm publish --dry-run` may still exit non-zero even when the tarball contents are fine. Beautiful little reminder that registries hold grudges.

@@ -1,23 +1,32 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Select semantic version bump type'
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
   release:
-    name: Publish to npm (trusted publishing)
+    name: Bump version, tag, and publish to npm
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -34,16 +43,16 @@ jobs:
       - name: Build package
         run: npm run build
 
-      - name: Verify tag matches package version
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Configure Git author
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
-            echo "Tag version ($TAG_VERSION) does not match package.json version ($PACKAGE_VERSION)."
-            exit 1
-          fi
+      - name: Bump version and create tag
+        run: npm version "${{ inputs.bump }}" -m "chore(release): %s"
 
-      - name: Publish package to npm
+      - name: Push release commit and tag
+        run: git push origin HEAD --follow-tags
+
+      - name: Publish package to npm (OIDC trusted publishing)
         run: npm publish --provenance --access public
