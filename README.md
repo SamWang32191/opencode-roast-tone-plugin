@@ -77,7 +77,7 @@ Use GitHub Actions release workflow only (OIDC trusted publishing).
 
 1. In npm package settings, add this repository workflow as a trusted publisher.
 2. Open **Actions → Release → Run workflow**.
-3. Select bump type (`patch`, `minor`, or `major`) and run.
+3. Select bump type (`patch` or `major`) and run on the default branch.
 
 The workflow will automatically:
 
