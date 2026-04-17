@@ -2,6 +2,10 @@
   "name": "opencode-roast-tone-plugin",
   "version": "0.1.4",
   "description": "Roast-tone server plugin for OpenCode",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SamWang32191/opencode-roast-tone-plugin"
+  },
   "license": "MIT",
   "type": "module",
   "main": "./dist/server.js",
