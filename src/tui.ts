@@ -8,6 +8,7 @@ import {
 
 const SETTINGS_COMMAND_VALUE = "roast-tone-settings";
 const ROAST_ENABLED_OPTION_VALUE = "roast-enabled";
+const ROAST_DISABLED_OPTION_VALUE = "roast-disabled";
 const PLUGIN_COMMAND_CATEGORY = "Plugin";
 
 const tui: TuiPlugin = async (api, _options, meta) => {
@@ -21,21 +22,33 @@ const tui: TuiPlugin = async (api, _options, meta) => {
 
     api.ui.dialog.replace(() =>
       api.ui.DialogSelect<string>({
-        title: "Roast Tone settings",
-        current: state.roastEnabled ? ROAST_ENABLED_OPTION_VALUE : undefined,
+        title: "Roast Tone setting",
+        current: state.roastEnabled ? ROAST_ENABLED_OPTION_VALUE : ROAST_DISABLED_OPTION_VALUE,
         options: [
           {
-            title: "Enabled",
+            title: "✅ Enabled",
             value: ROAST_ENABLED_OPTION_VALUE,
-            description: state.roastEnabled ? "On" : "Off",
+            description: "Roast tone is applied to every response.",
+          },
+          {
+            title: "⏸ Disabled",
+            value: ROAST_DISABLED_OPTION_VALUE,
+            description: "Responses keep their normal tone.",
           },
         ],
         onSelect: async (option) => {
-          if (option.value !== ROAST_ENABLED_OPTION_VALUE) {
+          const nextRoastEnabled =
+            option.value === ROAST_ENABLED_OPTION_VALUE
+              ? true
+              : option.value === ROAST_DISABLED_OPTION_VALUE
+                ? false
+                : state.roastEnabled;
+
+          if (nextRoastEnabled === state.roastEnabled) {
             return;
           }
 
-          await writeRoastEnabledState(context, !state.roastEnabled);
+          await writeRoastEnabledState(context, nextRoastEnabled);
           await showSettings();
         },
       }),

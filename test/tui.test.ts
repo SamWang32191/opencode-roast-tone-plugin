@@ -258,15 +258,20 @@ describe("tui entrypoint", () => {
     const dialog = plugin.renderDialog();
 
     expect(plugin.DialogSelect).toHaveBeenCalledTimes(1);
-    expect(dialog.title).toBe("Roast Tone settings");
+    expect(dialog.title).toBe("Roast Tone setting");
     expect(dialog.options).toEqual([
       expect.objectContaining({
-        title: "Enabled",
+        title: "✅ Enabled",
         value: "roast-enabled",
       }),
+      expect.objectContaining({
+        title: "⏸ Disabled",
+        value: "roast-disabled",
+      }),
     ]);
+    expect(dialog.current).toBe("roast-enabled");
 
-    await dialog.onSelect?.(dialog.options[0]!);
+    await dialog.onSelect?.(dialog.options[1]!);
 
     await expect(readStateFile(context)).resolves.toEqual({
       pluginEnabled: true,
