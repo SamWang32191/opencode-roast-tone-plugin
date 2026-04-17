@@ -1,23 +1,23 @@
+import type { Plugin } from "@opencode-ai/plugin";
+
+import { readEnabledState } from "./enabled-state.js";
 import { TONE } from "./tone.js";
 
-type MessagePart = {
-  type: string;
-  text: string;
+const prependTonePart = (parts: unknown[]) => {
+  parts.unshift({ type: "text", text: TONE });
 };
 
-type Message = {
-  info: {
-    role: string;
-  };
-  parts: MessagePart[];
-};
+const RoastTonePlugin: Plugin = async (input) => ({
+  "experimental.chat.messages.transform": async (_transformInput, output) => {
+    const enabled = await readEnabledState({
+      directory: input.directory,
+      worktree: input.worktree,
+    });
 
-type Output = {
-  messages: Message[];
-};
+    if (!enabled) {
+      return;
+    }
 
-export default () => ({
-  "experimental.chat.messages.transform": async (_input: unknown, output: Output) => {
     if (!output.messages.length) {
       return;
     }
@@ -34,6 +34,8 @@ export default () => ({
       return;
     }
 
-    firstUser.parts.unshift({ type: "text", text: TONE });
+    prependTonePart(firstUser.parts);
   },
 });
+
+export default RoastTonePlugin;
