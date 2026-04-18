@@ -1,6 +1,6 @@
 {
   "name": "opencode-roast-tone-plugin",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Roast-tone server plugin for OpenCode",
   "repository": {
     "type": "git",
