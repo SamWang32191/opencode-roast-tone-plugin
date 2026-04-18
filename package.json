@@ -26,26 +26,16 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
-  "peerDependencies": {
-    "@opentui/solid": ">=0.1.99",
-    "solid-js": "^1.9.11"
-  },
-  "peerDependenciesMeta": {
-    "@opentui/solid": {
-      "optional": true
-    },
-    "solid-js": {
-      "optional": true
-    }
+  "dependencies": {
+    "@opentui/solid": "0.1.99",
+    "solid-js": "1.9.11"
   },
   "devDependencies": {
     "@babel/core": "7.28.0",
     "@babel/preset-typescript": "7.27.1",
     "@opencode-ai/plugin": "^1.4.7",
-    "@opentui/solid": "0.1.99",
     "@types/node": "^25.6.0",
     "babel-preset-solid": "1.9.10",
-    "solid-js": "1.9.11",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   }
