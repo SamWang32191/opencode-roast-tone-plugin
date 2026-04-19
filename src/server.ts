@@ -1,26 +1,18 @@
 import type { Plugin } from "@opencode-ai/plugin";
 
-import { readEffectiveEnabledState } from "./enabled-state.js";
-import { TONE } from "./tone.js";
+import { readEnabledState } from "./enabled-state.js";
+import { getToneIdForPrompt, getTonePrompt } from "./tone.js";
 
-const prependTonePart = (parts: unknown[]) => {
-  parts.unshift({ type: "text", text: TONE });
+const createTonePart = (text: string) => {
+  return { type: "text", text } as const;
 };
 
 const RoastTonePlugin: Plugin = async (input) => ({
   "experimental.chat.messages.transform": async (_transformInput, output) => {
-    const enabled = await readEffectiveEnabledState({
+    const state = await readEnabledState({
       directory: input.directory,
       worktree: input.worktree,
     });
-
-    if (!enabled) {
-      return;
-    }
-
-    if (!output.messages.length) {
-      return;
-    }
 
     const firstUser = output.messages.find((message) => message.info.role === "user");
 
@@ -28,13 +20,31 @@ const RoastTonePlugin: Plugin = async (input) => ({
       return;
     }
 
+    const parts = firstUser.parts as unknown[];
     const firstPart = firstUser.parts[0];
+    const injectedToneId =
+      firstPart?.type === "text" ? getToneIdForPrompt(firstPart.text) : undefined;
 
-    if (firstPart?.type === "text" && firstPart.text === TONE) {
+    if (!state.pluginEnabled || !state.roastEnabled) {
+      if (injectedToneId) {
+        parts.shift();
+      }
+
       return;
     }
 
-    prependTonePart(firstUser.parts);
+    const nextPrompt = getTonePrompt(state.activeTone);
+
+    if (firstPart?.type === "text" && firstPart.text === nextPrompt) {
+      return;
+    }
+
+    if (injectedToneId) {
+      parts[0] = createTonePart(nextPrompt);
+      return;
+    }
+
+    parts.unshift(createTonePart(nextPrompt));
   },
 });
 
