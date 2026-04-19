@@ -122,7 +122,7 @@ const isPersistedEnabledState = (value: unknown): value is PersistedEnabledState
 };
 
 const hasNewEnabledStateFields = (state: PersistedEnabledState) => {
-  return "pluginEnabled" in state || "roastEnabled" in state || "activeTone" in state;
+  return "pluginEnabled" in state || "roastEnabled" in state;
 };
 
 const parsePersistedEnabledState = (contents: string): PersistedEnabledState | undefined => {

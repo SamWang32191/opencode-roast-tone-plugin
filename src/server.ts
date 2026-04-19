@@ -7,6 +7,22 @@ const createTonePart = (text: string) => {
   return { type: "text", text } as const;
 };
 
+const isLikelyInjectedTonePart = (part: unknown, partsLength: number) => {
+  if (
+    partsLength < 2 ||
+    typeof part !== "object" ||
+    part === null ||
+    !("type" in part) ||
+    !("text" in part) ||
+    part.type !== "text" ||
+    typeof part.text !== "string"
+  ) {
+    return false;
+  }
+
+  return Object.keys(part).every((key) => key === "type" || key === "text");
+};
+
 const RoastTonePlugin: Plugin = async (input) => ({
   "experimental.chat.messages.transform": async (_transformInput, output) => {
     const state = await readEnabledState({
@@ -24,9 +40,11 @@ const RoastTonePlugin: Plugin = async (input) => ({
     const firstPart = firstUser.parts[0];
     const injectedToneId =
       firstPart?.type === "text" ? getToneIdForPrompt(firstPart.text) : undefined;
+    const canTreatFirstPartAsInjected =
+      injectedToneId !== undefined && isLikelyInjectedTonePart(firstPart, firstUser.parts.length);
 
     if (!state.pluginEnabled || !state.roastEnabled) {
-      if (injectedToneId) {
+      if (canTreatFirstPartAsInjected) {
         parts.shift();
       }
 
@@ -39,7 +57,7 @@ const RoastTonePlugin: Plugin = async (input) => ({
       return;
     }
 
-    if (injectedToneId) {
+    if (canTreatFirstPartAsInjected) {
       parts[0] = createTonePart(nextPrompt);
       return;
     }

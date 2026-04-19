@@ -215,6 +215,24 @@ describe("enabled state helpers", () => {
     });
   });
 
+  it("keeps legacy enabled as the source of truth when activeTone is also present", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(
+      configDir,
+      JSON.stringify({ enabled: false, activeTone: "mentor" }),
+    );
+
+    await expect(
+      readEnabledState({ directory: configDir, worktree: configDir }),
+    ).resolves.toEqual({
+      pluginEnabled: false,
+      roastEnabled: false,
+      activeTone: "mentor",
+    });
+  });
+
   it("prefers new-format fields over legacy enabled when both formats appear", async () => {
     const configDir = await trackTempDir("enabled-config-");
 
