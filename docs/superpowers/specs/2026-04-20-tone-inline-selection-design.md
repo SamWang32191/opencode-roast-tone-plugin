@@ -77,6 +77,7 @@
 - `Active tone`
   - `left`: 切到前一個 tone preset。
   - `right`: 切到下一個 tone preset。
+  - `space`: 不做任何事。
   - `Enter`: 不做任何事，不開新畫面。
 
 ### Cycling rule
@@ -99,6 +100,7 @@
 - 底部提示改成單一 dialog 的真實快捷鍵說明，至少要能反映：
   - `Tone enabled` 可 toggle
   - `Active tone` 用 `left/right` 調整
+  - `Active tone` 的 `space` / `Enter` 不會開新畫面，也不會改值
 
 ## Implementation surface
 

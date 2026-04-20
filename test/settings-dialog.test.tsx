@@ -45,6 +45,27 @@ type DialogValue = Field | ToneId;
 
 let lastDialogProps: TuiDialogSelectProps<DialogValue> | undefined;
 
+const collectText = (node: unknown): string[] => {
+  if (typeof node === "string") {
+    return [node];
+  }
+
+  if (Array.isArray(node)) {
+    return node.flatMap(collectText);
+  }
+
+  if (!node || typeof node !== "object") {
+    return [];
+  }
+
+  const children = (node as { children?: unknown[] }).children;
+  return Array.isArray(children) ? children.flatMap(collectText) : [];
+};
+
+const renderText = (node: unknown) => {
+  return collectText(node).join("").replace(/\s+/g, " ").trim();
+};
+
 const DialogSelect = vi.fn((props: TuiDialogSelectProps<DialogValue>) => {
   lastDialogProps = props;
   return props as never;
@@ -68,11 +89,12 @@ const mountDialog = (options?: {
   }));
 
   let dispose!: () => void;
+  let rendered: unknown;
 
   createRoot((nextDispose) => {
     dispose = nextDispose;
 
-    return (
+    rendered = (
       <SettingsDialog
         api={{
           ui: { DialogSelect },
@@ -84,11 +106,14 @@ const mountDialog = (options?: {
         selectTone={selectTone}
       />
     );
+
+    return rendered;
   });
 
   return {
     dispose,
     flip,
+    rendered: () => rendered,
     selectTone,
     setValue,
     setSavingField,
@@ -149,38 +174,109 @@ describe("SettingsDialog", () => {
     dialog.dispose();
   });
 
-  it("opens the tone picker when Active tone is selected", async () => {
+  it("cycles to the next tone with Right on the Active tone row", () => {
     const dialog = mountDialog({
       initialValue: { roastEnabled: false, activeTone: "mentor" },
     });
+    dialog.dialog().onMove?.(dialog.dialog().options[1]!);
 
-    await dialog.dialog().onSelect?.(dialog.dialog().options[1]!);
+    const event = {
+      name: "right",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } satisfies KeyboardEventLike;
 
-    expect(dialog.dialog()).toMatchObject({
-      title: "Select tone",
-      current: "mentor",
-    });
-    expect(dialog.dialog().options).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ title: "Roast", value: "roast" }),
-        expect.objectContaining({ title: "Dry", value: "dry" }),
-        expect.objectContaining({ title: "Deadpan", value: "deadpan" }),
-        expect.objectContaining({ title: "Mentor", value: "mentor" }),
-      ]),
-    );
+    lastKeyboardHandler?.(event);
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(dialog.selectTone).toHaveBeenCalledWith("roast");
 
     dialog.dispose();
   });
 
-  it("selects a tone from the tone picker", async () => {
-    const dialog = mountDialog();
+  it("cycles to the previous tone with Left on the Active tone row", () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: false, activeTone: "roast" },
+    });
+    dialog.dialog().onMove?.(dialog.dialog().options[1]!);
+
+    const event = {
+      name: "left",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } satisfies KeyboardEventLike;
+
+    lastKeyboardHandler?.(event);
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(dialog.selectTone).toHaveBeenCalledWith("mentor");
+
+    dialog.dispose();
+  });
+
+  it("does not open a second dialog when Enter is pressed on Active tone", async () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: false, activeTone: "mentor" },
+    });
+    dialog.dialog().onMove?.(dialog.dialog().options[1]!);
 
     await dialog.dialog().onSelect?.(dialog.dialog().options[1]!);
-    await dialog.dialog().onSelect?.(
-      dialog.dialog().options.find((option) => option.value === "deadpan")!,
-    );
 
-    expect(dialog.selectTone).toHaveBeenCalledWith("deadpan");
+    expect(dialog.dialog()).toMatchObject({
+      title: "Roast Tone settings",
+      current: "activeTone",
+    });
+    expect(dialog.selectTone).not.toHaveBeenCalled();
+
+    dialog.dispose();
+  });
+
+  it("ignores Left and Right while Active tone is saving", () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: true, activeTone: "deadpan" },
+      initialSavingField: "activeTone",
+    });
+    dialog.dialog().onMove?.(dialog.dialog().options[1]!);
+
+    const event = {
+      name: "right",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } satisfies KeyboardEventLike;
+
+    lastKeyboardHandler?.(event);
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopPropagation).not.toHaveBeenCalled();
+    expect(dialog.selectTone).not.toHaveBeenCalled();
+
+    event.name = "left";
+    lastKeyboardHandler?.(event);
+
+    expect(dialog.selectTone).not.toHaveBeenCalled();
+
+    dialog.dispose();
+  });
+
+  it("treats Space as a no-op on the Active tone row", () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: false, activeTone: "dry" },
+    });
+    dialog.dialog().onMove?.(dialog.dialog().options[1]!);
+
+    const event = {
+      name: "space",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } satisfies KeyboardEventLike;
+
+    lastKeyboardHandler?.(event);
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(dialog.selectTone).not.toHaveBeenCalled();
 
     dialog.dispose();
   });
@@ -226,6 +322,19 @@ describe("SettingsDialog", () => {
         disabled: true,
       }),
     ]);
+
+    dialog.dispose();
+  });
+
+  it("renders help text for inline tone controls", () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: true, activeTone: "roast" },
+    });
+
+    const text = renderText(dialog.rendered());
+
+    expect(text).toContain("Tone enabled: space enter left/right");
+    expect(text).toContain("Active tone: left/right");
 
     dialog.dispose();
   });

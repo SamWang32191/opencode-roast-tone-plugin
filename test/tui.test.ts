@@ -7,6 +7,14 @@ import * as enabledState from "../src/enabled-state.js";
 import { resolveStateFile } from "../src/enabled-state.js";
 import type { ToneId } from "../src/tone.js";
 
+type KeyboardEventLike = {
+  name: string;
+  preventDefault: ReturnType<typeof vi.fn>;
+  stopPropagation: ReturnType<typeof vi.fn>;
+};
+
+let lastKeyboardHandler: ((event: KeyboardEventLike) => void) | undefined;
+
 vi.mock("@opentui/solid/jsx-runtime", () => ({
   Fragment: Symbol.for("fragment"),
   jsx: (type: unknown, props: Record<string, unknown>) => {
@@ -21,62 +29,24 @@ vi.mock("@opentui/solid", () => ({
   createComponent: (component: (props: Record<string, unknown>) => unknown, props: Record<string, unknown>) => {
     return component(props);
   },
-}));
-
-vi.mock("../src/settings-dialog.js", () => ({
-  SettingsDialog: (props: {
-    api: {
-      ui: {
-        DialogSelect: (dialogProps: DialogSelectProps) => DialogSelectProps;
-      };
-    };
-    value: () => { roastEnabled: boolean; activeTone: "roast" | "dry" | "deadpan" | "mentor" };
-    savingField: () => string | undefined;
-    flip: (field: "roastEnabled") => void | Promise<void>;
-    selectTone: (toneId: "roast" | "dry" | "deadpan" | "mentor") => void | Promise<void>;
-  }) => {
-    const toneTitles = {
-      roast: "Roast",
-      dry: "Dry",
-      deadpan: "Deadpan",
-      mentor: "Mentor",
-    } as const;
-
-    return props.api.ui.DialogSelect({
-      title: "Roast Tone settings",
-      placeholder: "Filter settings",
-      current: "roastEnabled",
-      options: [
-        {
-          title: "Tone enabled",
-          value: "roastEnabled",
-          description: "Apply roast tone to future messages.",
-          category: "Tone",
-          footer: props.savingField() === "roastEnabled" ? "Saving..." : props.value().roastEnabled ? "ON" : "OFF",
-          disabled: props.savingField() !== undefined,
-        },
-        {
-          title: "Active tone",
-          value: "activeTone",
-          description: "Choose which preset to inject.",
-          category: "Tone",
-          footer:
-            props.savingField() === "activeTone"
-              ? "Saving..."
-              : toneTitles[props.value().activeTone],
-          disabled: props.savingField() !== undefined,
-        },
-      ],
-      onSelect: async (option) => {
-        if (option.value === "roastEnabled") {
-          await props.flip("roastEnabled");
-        }
-
-        if (option.value === "activeTone") {
-          await props.selectTone("deadpan");
-        }
-      },
-    });
+  createElement: (type: string) => ({ type, props: {}, children: [] as unknown[] }),
+  createTextNode: (value: string) => value,
+  effect: (fn: (state: { e: unknown; t: unknown }) => { e: unknown; t: unknown }, state: { e: unknown; t: unknown }) => {
+    return fn(state);
+  },
+  insert: (parent: { children: unknown[] }, child: unknown) => {
+    parent.children.push(child);
+  },
+  insertNode: (parent: { children: unknown[] }, child: unknown) => {
+    parent.children.push(child);
+  },
+  setProp: (target: { props: Record<string, unknown> }, key: string, value: unknown) => {
+    target.props[key] = value;
+    return value;
+  },
+  memo: (value: unknown) => value,
+  useKeyboard: (handler: (event: KeyboardEventLike) => void) => {
+    lastKeyboardHandler = handler;
   },
 }));
 
@@ -211,6 +181,12 @@ const createApi = (context: EnabledStateContext, initialPlugins: PluginStatus[] 
           open: false,
         },
       },
+      theme: {
+        current: {
+          text: "text",
+          textMuted: "muted",
+        },
+      },
       plugins: {
         list: () => plugins,
       },
@@ -259,6 +235,7 @@ const createApi = (context: EnabledStateContext, initialPlugins: PluginStatus[] 
 };
 
 afterEach(async () => {
+  lastKeyboardHandler = undefined;
   restoreEnv();
 
   await Promise.all(
@@ -503,13 +480,35 @@ describe("tui entrypoint", () => {
     await command?.onSelect?.();
 
     const dialog = plugin.renderDialog();
-    await dialog.onSelect?.(dialog.options[1]!);
+    dialog.onMove?.(dialog.options[1]!);
+
+    const event = {
+      name: "right",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } satisfies KeyboardEventLike;
+    let writePromise: Promise<void> | undefined;
+    const originalWriteActiveToneState = enabledState.writeActiveToneState;
+    const writeActiveToneState = vi
+      .spyOn(enabledState, "writeActiveToneState")
+      .mockImplementation((nextContext, toneId) => {
+        writePromise = originalWriteActiveToneState(nextContext, toneId);
+        return writePromise;
+      });
+
+    lastKeyboardHandler?.(event);
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1);
+    await writePromise;
 
     await expect(readStateFile(context)).resolves.toEqual({
       pluginEnabled: true,
       roastEnabled: false,
-      activeTone: "deadpan",
+      activeTone: "dry",
     });
+
+    writeActiveToneState.mockRestore();
   });
 
   it("rolls back and shows an error toast when saving activeTone fails", async () => {
@@ -529,13 +528,33 @@ describe("tui entrypoint", () => {
     await command?.onSelect?.();
 
     const dialog = plugin.renderDialog();
-    await dialog.onSelect?.(dialog.options[1]!);
+    dialog.onMove?.(dialog.options[1]!);
+
+    const event = {
+      name: "right",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } satisfies KeyboardEventLike;
+
+    let writePromise: Promise<void> | undefined;
+    const originalWriteActiveToneState = enabledState.writeActiveToneState;
+    const writeActiveToneState = vi
+      .spyOn(enabledState, "writeActiveToneState")
+      .mockImplementation((nextContext, toneId) => {
+        writePromise = originalWriteActiveToneState(nextContext, toneId);
+        return writePromise;
+      });
+
+    lastKeyboardHandler?.(event);
+    await writePromise?.catch(() => undefined);
 
     expect(plugin.api.ui.toast).toHaveBeenCalledWith({
       variant: "error",
       title: "Couldn't save setting",
       message: "Failed to update Active tone.",
     });
+
+    writeActiveToneState.mockRestore();
   });
 
   it("preserves the optimistic value and dialog lock when reopened during an in-flight save", async () => {

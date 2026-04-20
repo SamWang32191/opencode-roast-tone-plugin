@@ -16,6 +16,10 @@ type TransformPart = TransformMessage["parts"][number];
 type UserInfo = Extract<TransformInfo, { role: "user" }>;
 type AssistantInfo = Extract<TransformInfo, { role: "assistant" }>;
 type TextPart = Extract<TransformPart, { type: "text" }>;
+type InjectedTonePart = Pick<TextPart, "type" | "text">;
+type TestTransformMessage = Omit<TransformMessage, "parts"> & {
+  parts: Array<TransformPart | InjectedTonePart>;
+};
 
 const originalOpencodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
 const tempDirs = new Set<string>();
@@ -80,9 +84,11 @@ const createTextPart = (text: string, overrides: Partial<TextPart> = {}): TextPa
   ...overrides,
 });
 
-const createInjectedTonePart = (text: string) => ({ type: "text", text } as const);
+const createInjectedTonePart = (text: string): InjectedTonePart => ({ type: "text", text });
 
-const createOutput = (messages: TransformOutput["messages"]): TransformOutput => ({ messages });
+const createOutput = (messages: TestTransformMessage[]): TransformOutput => {
+  return { messages: messages as TransformOutput["messages"] };
+};
 
 const restoreEnv = () => {
   if (originalOpencodeConfigDir === undefined) {
