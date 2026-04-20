@@ -45,6 +45,27 @@ type DialogValue = Field | ToneId;
 
 let lastDialogProps: TuiDialogSelectProps<DialogValue> | undefined;
 
+const collectText = (node: unknown): string[] => {
+  if (typeof node === "string") {
+    return [node];
+  }
+
+  if (Array.isArray(node)) {
+    return node.flatMap(collectText);
+  }
+
+  if (!node || typeof node !== "object") {
+    return [];
+  }
+
+  const children = (node as { children?: unknown[] }).children;
+  return Array.isArray(children) ? children.flatMap(collectText) : [];
+};
+
+const renderText = (node: unknown) => {
+  return collectText(node).join("").replace(/\s+/g, " ").trim();
+};
+
 const DialogSelect = vi.fn((props: TuiDialogSelectProps<DialogValue>) => {
   lastDialogProps = props;
   return props as never;
@@ -68,11 +89,12 @@ const mountDialog = (options?: {
   }));
 
   let dispose!: () => void;
+  let rendered: unknown;
 
   createRoot((nextDispose) => {
     dispose = nextDispose;
 
-    return (
+    rendered = (
       <SettingsDialog
         api={{
           ui: { DialogSelect },
@@ -84,11 +106,14 @@ const mountDialog = (options?: {
         selectTone={selectTone}
       />
     );
+
+    return rendered;
   });
 
   return {
     dispose,
     flip,
+    rendered: () => rendered,
     selectTone,
     setValue,
     setSavingField,
@@ -297,6 +322,19 @@ describe("SettingsDialog", () => {
         disabled: true,
       }),
     ]);
+
+    dialog.dispose();
+  });
+
+  it("renders help text for inline tone controls", () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: true, activeTone: "roast" },
+    });
+
+    const text = renderText(dialog.rendered());
+
+    expect(text).toContain("Tone enabled: space enter left/right");
+    expect(text).toContain("Active tone: left/right");
 
     dialog.dispose();
   });
