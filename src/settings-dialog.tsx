@@ -3,40 +3,45 @@ import { useKeyboard } from "@opentui/solid";
 import type { TuiPlugin } from "@opencode-ai/plugin/tui";
 import { createEffect, createMemo, createSignal } from "solid-js";
 
+import { TONE_IDS, getToneDefinition, isToneId, type ToneId } from "./tone.js";
+
 type Api = Parameters<TuiPlugin>[0];
 
 export type ToggleField = "roastEnabled";
-export type Field = ToggleField;
+export type PickerField = "activeTone";
+export type Field = ToggleField | PickerField;
+type DialogValue = Field | ToneId;
+type DialogMode = "settings" | "tone-picker";
 
 export type SettingsState = {
   roastEnabled: boolean;
+  activeTone: ToneId;
 };
 
-type ToggleRow = {
-  key: ToggleField;
-  title: "Tone enabled";
-  description: "Apply roast tone to future messages.";
+type SettingsRow = {
+  key: Field;
+  title: string;
+  description: string;
   category: "Tone";
-  kind: "toggle";
 };
 
-const rows: ToggleRow[] = [
+const rows: SettingsRow[] = [
   {
     key: "roastEnabled",
     title: "Tone enabled",
     description: "Apply roast tone to future messages.",
     category: "Tone",
-    kind: "toggle",
+  },
+  {
+    key: "activeTone",
+    title: "Active tone",
+    description: "Choose which preset to inject.",
+    category: "Tone",
   },
 ];
 
-export const settingByField = Object.fromEntries(rows.map((row) => [row.key, row])) as Record<
-  ToggleField,
-  ToggleRow
->;
-
 const field = (value: unknown): Field | undefined => {
-  return value === "roastEnabled" ? value : undefined;
+  return value === "roastEnabled" || value === "activeTone" ? value : undefined;
 };
 
 const status = (value: boolean) => {
@@ -48,9 +53,11 @@ export const SettingsDialog = (props: {
   value: () => SettingsState;
   savingField: () => Field | undefined;
   flip: (key: ToggleField) => void | Promise<void>;
+  selectTone: (toneId: ToneId) => void | Promise<void>;
 }) => {
   const [filterQuery, setFilterQuery] = createSignal("");
-  const [current, setCurrent] = createSignal<Field | undefined>(rows[0]?.key);
+  const [mode, setMode] = createSignal<DialogMode>("settings");
+  const [current, setCurrent] = createSignal<DialogValue | undefined>("roastEnabled");
   const theme = createMemo(() => props.api.theme.current);
 
   const visibleRows = createMemo(() => {
@@ -68,22 +75,31 @@ export const SettingsDialog = (props: {
   });
 
   createEffect(() => {
+    if (mode() === "tone-picker") {
+      return;
+    }
+
     const visible = visibleRows();
     const nextCurrent = current();
 
-    if (nextCurrent && visible.some((row) => row.key === nextCurrent)) {
+    if (field(nextCurrent) && visible.some((row) => row.key === nextCurrent)) {
       return;
     }
 
     setCurrent(visible[0]?.key);
   });
 
-  const options = createMemo(() => {
+  const settingsOptions = createMemo(() => {
     const value = props.value();
     const savingField = props.savingField();
 
     return visibleRows().map((row) => {
-      const footer = savingField === row.key ? "Saving..." : status(value[row.key]);
+      const footer =
+        savingField === row.key
+          ? "Saving..."
+          : row.key === "roastEnabled"
+            ? status(value.roastEnabled)
+            : getToneDefinition(value.activeTone).title;
 
       return {
         title: row.title,
@@ -96,48 +112,81 @@ export const SettingsDialog = (props: {
     });
   });
 
-  useKeyboard((event) => {
-    const activeField = current();
+  const toneOptions = createMemo(() => {
+    const savingField = props.savingField();
 
-    if (!activeField || props.savingField()) {
+    return TONE_IDS.map((toneId) => {
+      const tone = getToneDefinition(toneId);
+
+      return {
+        title: tone.title,
+        value: tone.id,
+        description: tone.description,
+        category: "Tone",
+        footer: props.value().activeTone === toneId ? "Selected" : undefined,
+        disabled: savingField !== undefined,
+      };
+    });
+  });
+
+  useKeyboard((event) => {
+    if (mode() !== "settings") {
+      return;
+    }
+
+    const activeField = field(current());
+
+    if (activeField !== "roastEnabled" || props.savingField()) {
       return;
     }
 
     if (event.name === "space" || event.name === "left" || event.name === "right") {
       event.preventDefault();
       event.stopPropagation();
-      void props.flip(activeField);
+      void props.flip("roastEnabled");
     }
   });
 
   return (
     <box flexDirection="column">
       <props.api.ui.DialogSelect
-        title="Roast Tone settings"
-        placeholder="Filter settings"
-        options={options()}
+        title={mode() === "settings" ? "Roast Tone settings" : "Select tone"}
+        placeholder={mode() === "settings" ? "Filter settings" : "Filter tones"}
+        options={mode() === "settings" ? settingsOptions() : toneOptions()}
         current={current()}
         onFilter={(query) => {
           setFilterQuery(query);
         }}
         onMove={(item) => {
-          const next = field(item.value);
-
-          if (!next) {
-            return;
-          }
-
-          setCurrent(next);
+          setCurrent(item.value as DialogValue);
         }}
         onSelect={async (item) => {
-          const next = field(item.value);
+          if (mode() === "settings") {
+            const nextField = field(item.value);
 
-          if (!next || props.savingField()) {
+            if (!nextField || props.savingField()) {
+              return;
+            }
+
+            setCurrent(nextField);
+
+            if (nextField === "roastEnabled") {
+              await props.flip("roastEnabled");
+              return;
+            }
+
+            setMode("tone-picker");
+            setCurrent(props.value().activeTone);
             return;
           }
 
-          setCurrent(next);
-          await props.flip(next);
+          if (!isToneId(item.value) || props.savingField()) {
+            return;
+          }
+
+          await props.selectTone(item.value);
+          setMode("settings");
+          setCurrent("activeTone");
         }}
       />
       <box
@@ -151,9 +200,11 @@ export const SettingsDialog = (props: {
       >
         <text>
           <span style={{ fg: theme().text }}>
-            <b>toggle</b>{" "}
+            <b>{mode() === "settings" ? "toggle" : "select"}</b>{" "}
           </span>
-          <span style={{ fg: theme().textMuted }}>space enter left/right</span>
+          <span style={{ fg: theme().textMuted }}>
+            {mode() === "settings" ? "space enter left/right" : "enter"}
+          </span>
         </text>
       </box>
     </box>

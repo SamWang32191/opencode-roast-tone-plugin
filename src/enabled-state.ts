@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
+import { DEFAULT_TONE_ID, isToneId, type ToneId } from "./tone.js";
+
 export type EnabledStateContext = {
   directory: string;
   worktree: string;
@@ -11,6 +13,7 @@ export type EnabledStateContext = {
 export type EnabledState = {
   pluginEnabled: boolean;
   roastEnabled: boolean;
+  activeTone: ToneId;
 };
 
 export type ReadWarning = "invalid-file" | "unreadable-file" | "partial-invalid-fields";
@@ -34,12 +37,14 @@ type PersistedEnabledState = Record<string, unknown> & {
   enabled?: unknown;
   pluginEnabled?: unknown;
   roastEnabled?: unknown;
+  activeTone?: unknown;
 };
 
 const STATE_FILE_PARTS = ["plugin-data", "opencode-roast-tone-plugin", "state.json"] as const;
 const DEFAULT_ENABLED_STATE: EnabledState = {
   pluginEnabled: true,
   roastEnabled: true,
+  activeTone: DEFAULT_TONE_ID,
 };
 
 const isWithinDirectory = (child: string, parent: string) => {
@@ -109,6 +114,7 @@ const isFileNotFoundError = (error: unknown): error is NodeJS.ErrnoException => 
 const createDefaultEnabledState = (): EnabledState => ({
   pluginEnabled: DEFAULT_ENABLED_STATE.pluginEnabled,
   roastEnabled: DEFAULT_ENABLED_STATE.roastEnabled,
+  activeTone: DEFAULT_ENABLED_STATE.activeTone,
 });
 
 const isPersistedEnabledState = (value: unknown): value is PersistedEnabledState => {
@@ -129,6 +135,7 @@ const createResultFromParsedState = (raw: PersistedEnabledState): ReadEnabledSta
   if (hasNewEnabledStateFields(raw)) {
     const pluginEnabledValid = typeof raw.pluginEnabled === "boolean";
     const roastEnabledValid = typeof raw.roastEnabled === "boolean";
+    const activeToneValid = raw.activeTone === undefined || isToneId(raw.activeTone);
     const state = {
       pluginEnabled: pluginEnabledValid
         ? (raw.pluginEnabled as boolean)
@@ -136,9 +143,13 @@ const createResultFromParsedState = (raw: PersistedEnabledState): ReadEnabledSta
       roastEnabled: roastEnabledValid
         ? (raw.roastEnabled as boolean)
         : DEFAULT_ENABLED_STATE.roastEnabled,
+      activeTone:
+        raw.activeTone !== undefined && activeToneValid
+          ? (raw.activeTone as ToneId)
+          : DEFAULT_ENABLED_STATE.activeTone,
     } satisfies EnabledState;
 
-    if (pluginEnabledValid && roastEnabledValid) {
+    if (pluginEnabledValid && roastEnabledValid && activeToneValid) {
       return { state, kind: "new-format-ok", raw };
     }
 
@@ -151,14 +162,17 @@ const createResultFromParsedState = (raw: PersistedEnabledState): ReadEnabledSta
   }
 
   if (typeof raw.enabled === "boolean") {
-      return {
-        state: {
-          pluginEnabled: raw.enabled as boolean,
-          roastEnabled: raw.enabled as boolean,
-        },
-        kind: "legacy",
-        raw,
-      };
+    return {
+      state: {
+        pluginEnabled: raw.enabled as boolean,
+        roastEnabled: raw.enabled as boolean,
+        activeTone: isToneId(raw.activeTone)
+          ? (raw.activeTone as ToneId)
+          : DEFAULT_ENABLED_STATE.activeTone,
+      },
+      kind: "legacy",
+      raw,
+    };
   }
 
   return {
@@ -245,6 +259,7 @@ const createPersistedState = (
     ...persisted,
     pluginEnabled: state.pluginEnabled,
     roastEnabled: state.roastEnabled,
+    activeTone: state.activeTone,
   };
 };
 
@@ -275,6 +290,13 @@ export const writeRoastEnabledState = async (
   await writeMergedEnabledState(context, { roastEnabled });
 };
 
+export const writeActiveToneState = async (
+  context: EnabledStateContext,
+  activeTone: ToneId,
+) => {
+  await writeMergedEnabledState(context, { activeTone });
+};
+
 export const writeEnabledState = async (context: EnabledStateContext, enabled: boolean) => {
   const current = await readEnabledStateResult(context);
 
@@ -283,6 +305,7 @@ export const writeEnabledState = async (context: EnabledStateContext, enabled: b
     createPersistedState(current, {
       pluginEnabled: enabled,
       roastEnabled: enabled,
+      activeTone: current.state.activeTone,
     }),
   );
 };

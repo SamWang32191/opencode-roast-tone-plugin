@@ -4,6 +4,7 @@ import { createRoot, createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsDialog, type Field, type SettingsState } from "../src/settings-dialog.js";
+import type { ToneId } from "../src/tone.js";
 
 type KeyboardEventLike = {
   name: string;
@@ -33,15 +34,18 @@ vi.mock("@opentui/solid", async () => {
       target.props[key] = value;
       return value;
     },
+    memo: (value: unknown) => value,
     useKeyboard: (handler: (event: KeyboardEventLike) => void) => {
       lastKeyboardHandler = handler;
     },
   };
 });
 
-let lastDialogProps: TuiDialogSelectProps<Field> | undefined;
+type DialogValue = Field | ToneId;
 
-const DialogSelect = vi.fn((props: TuiDialogSelectProps<Field>) => {
+let lastDialogProps: TuiDialogSelectProps<DialogValue> | undefined;
+
+const DialogSelect = vi.fn((props: TuiDialogSelectProps<DialogValue>) => {
   lastDialogProps = props;
   return props as never;
 });
@@ -49,12 +53,18 @@ const DialogSelect = vi.fn((props: TuiDialogSelectProps<Field>) => {
 const mountDialog = (options?: {
   initialValue?: SettingsState;
   initialSavingField?: Field | undefined;
-  flip?: (key: Field) => void | Promise<void>;
+  flip?: (key: "roastEnabled") => void | Promise<void>;
+  selectTone?: (toneId: ToneId) => void | Promise<void>;
 }) => {
-  const [value, setValue] = createSignal<SettingsState>(options?.initialValue ?? { roastEnabled: true });
+  const [value, setValue] = createSignal<SettingsState>(
+    options?.initialValue ?? { roastEnabled: true, activeTone: "roast" },
+  );
   const [savingField, setSavingField] = createSignal<Field | undefined>(options?.initialSavingField);
-  const flip = vi.fn(options?.flip ?? ((key: Field) => {
-    setValue((state) => ({ ...state, [key]: !state[key] }));
+  const flip = vi.fn(options?.flip ?? (() => {
+    setValue((state) => ({ ...state, roastEnabled: !state.roastEnabled }));
+  }));
+  const selectTone = vi.fn(options?.selectTone ?? ((toneId: ToneId) => {
+    setValue((state) => ({ ...state, activeTone: toneId }));
   }));
 
   let dispose!: () => void;
@@ -71,6 +81,7 @@ const mountDialog = (options?: {
         value={value}
         savingField={savingField}
         flip={flip}
+        selectTone={selectTone}
       />
     );
   });
@@ -78,6 +89,7 @@ const mountDialog = (options?: {
   return {
     dispose,
     flip,
+    selectTone,
     setValue,
     setSavingField,
     dialog: () => {
@@ -97,8 +109,10 @@ afterEach(() => {
 });
 
 describe("SettingsDialog", () => {
-  it("renders the roast tone row with filter, category, and ON footer", () => {
-    const dialog = mountDialog();
+  it("renders both Tone enabled and Active tone rows", () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: true, activeTone: "roast" },
+    });
 
     expect(dialog.dialog()).toMatchObject({
       title: "Roast Tone settings",
@@ -113,6 +127,13 @@ describe("SettingsDialog", () => {
         category: "Tone",
         footer: "ON",
       }),
+      expect.objectContaining({
+        title: "Active tone",
+        value: "activeTone",
+        description: "Choose which preset to inject.",
+        category: "Tone",
+        footer: "Roast",
+      }),
     ]);
 
     dialog.dispose();
@@ -124,6 +145,42 @@ describe("SettingsDialog", () => {
     await dialog.dialog().onSelect?.(dialog.dialog().options[0]!);
 
     expect(dialog.flip).toHaveBeenCalledWith("roastEnabled");
+
+    dialog.dispose();
+  });
+
+  it("opens the tone picker when Active tone is selected", async () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: false, activeTone: "mentor" },
+    });
+
+    await dialog.dialog().onSelect?.(dialog.dialog().options[1]!);
+
+    expect(dialog.dialog()).toMatchObject({
+      title: "Select tone",
+      current: "mentor",
+    });
+    expect(dialog.dialog().options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "Roast", value: "roast" }),
+        expect.objectContaining({ title: "Dry", value: "dry" }),
+        expect.objectContaining({ title: "Deadpan", value: "deadpan" }),
+        expect.objectContaining({ title: "Mentor", value: "mentor" }),
+      ]),
+    );
+
+    dialog.dispose();
+  });
+
+  it("selects a tone from the tone picker", async () => {
+    const dialog = mountDialog();
+
+    await dialog.dialog().onSelect?.(dialog.dialog().options[1]!);
+    await dialog.dialog().onSelect?.(
+      dialog.dialog().options.find((option) => option.value === "deadpan")!,
+    );
+
+    expect(dialog.selectTone).toHaveBeenCalledWith("deadpan");
 
     dialog.dispose();
   });
@@ -161,6 +218,11 @@ describe("SettingsDialog", () => {
       expect.objectContaining({
         value: "roastEnabled",
         footer: "Saving...",
+        disabled: true,
+      }),
+      expect.objectContaining({
+        value: "activeTone",
+        footer: "Roast",
         disabled: true,
       }),
     ]);

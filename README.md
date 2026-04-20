@@ -29,14 +29,21 @@ If you would rather configure plugins directly, use:
 This plugin now has **two** TUI control surfaces:
 
 1. **Built-in Plugins dialog**: controls whether the whole `opencode-roast-tone-plugin` package is enabled.
-2. **`Roast Tone settings` command**: controls only whether roast-tone injection is enabled while the plugin itself stays installed and active.
+2. **`Roast Tone settings` command**: controls whether tone injection is enabled and which preset gets injected.
 
-Open the command palette and run **`Roast Tone settings`** to manage the roast-tone injection toggle.
+Open the command palette and run **`Roast Tone settings`** to manage both values.
+
+### Tone presets
+
+- **Roast**: the existing sharp roast-comic baseline
+- **Dry**: shorter, clipped, and unimpressed
+- **Deadpan**: flat delivery with colder punchlines
+- **Mentor**: stricter guidance with lighter roast
 
 ### State combinations
 
-- **Plugin enabled + roast tone enabled**: the plugin is on, and future user messages get the roast-tone instruction injected.
-- **Plugin enabled + roast tone disabled**: the plugin stays on, but future user messages are sent without the roast-tone instruction.
+- **Plugin enabled + Tone enabled**: the selected preset is injected into future user messages.
+- **Plugin enabled + Tone disabled**: the plugin stays installed, but any known injected preset is removed from the active thread on the next transform.
 - **Plugin disabled**: the plugin is off from the Plugins dialog, so no roast-tone injection runs at all.
 
 ### Persistence
@@ -50,7 +57,7 @@ It uses the existing config-root resolution order:
 3. `XDG_CONFIG_HOME/opencode`
 4. `~/.config/opencode`
 
-That means both the plugin-level enabled state and the roast-tone injection state continue to follow the same config-root behavior OpenCode already uses.
+That means the plugin-level enabled state, the tone toggle, and the active preset all continue to follow the same config-root behavior OpenCode already uses.
 
 ## Local development
 
@@ -86,4 +93,3 @@ The workflow will automatically:
 - bump version in `package.json` + `package-lock.json`
 - create and push the release commit and `v*` tag
 - publish to npm with `npm publish --provenance --access public`
-

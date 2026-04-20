@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import createPlugin from "../src/server.js";
-import { TONE } from "../src/tone.js";
+import { TONE, TONE_REGISTRY } from "../src/tone.js";
 
 type PluginInstance = Awaited<ReturnType<typeof createPlugin>>;
 type Transform = NonNullable<PluginInstance["experimental.chat.messages.transform"]>;
@@ -79,6 +79,8 @@ const createTextPart = (text: string, overrides: Partial<TextPart> = {}): TextPa
   text,
   ...overrides,
 });
+
+const createInjectedTonePart = (text: string) => ({ type: "text", text } as const);
 
 const createOutput = (messages: TransformOutput["messages"]): TransformOutput => ({ messages });
 
@@ -335,6 +337,145 @@ describe("server plugin", () => {
 
     expect(output.messages[0].parts).toHaveLength(1);
     expect(output.messages[0].parts[0]).toMatchObject({ type: "text", text: "hello" });
+  });
+
+  it("injects the selected preset prompt instead of always using roast", async () => {
+    const configDir = await trackTempDir("server-config-");
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeStateFile(
+      configDir,
+      JSON.stringify({
+        pluginEnabled: true,
+        roastEnabled: true,
+        activeTone: "dry",
+      }),
+    );
+
+    const transform = await createTransform();
+    const output = createOutput([
+      {
+        info: createUserInfo(),
+        parts: [createTextPart("hello")],
+      },
+    ]);
+
+    await transform(TRANSFORM_INPUT, output);
+
+    expect(output.messages[0].parts[0]).toEqual({
+      type: "text",
+      text: TONE_REGISTRY.dry.prompt,
+    });
+  });
+
+  it("falls back to the roast prompt when the new format omits activeTone", async () => {
+    const configDir = await trackTempDir("server-config-");
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeStateFile(
+      configDir,
+      JSON.stringify({
+        pluginEnabled: true,
+        roastEnabled: true,
+      }),
+    );
+
+    const transform = await createTransform();
+    const output = createOutput([
+      {
+        info: createUserInfo(),
+        parts: [createTextPart("hello")],
+      },
+    ]);
+
+    await transform(TRANSFORM_INPUT, output);
+
+    expect(output.messages[0].parts[0]).toEqual({
+      type: "text",
+      text: TONE_REGISTRY.roast.prompt,
+    });
+  });
+
+  it("replaces an older injected preset when activeTone changes", async () => {
+    const configDir = await trackTempDir("server-config-");
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeStateFile(
+      configDir,
+      JSON.stringify({
+        pluginEnabled: true,
+        roastEnabled: true,
+        activeTone: "mentor",
+      }),
+    );
+
+    const transform = await createTransform();
+    const output = createOutput([
+      {
+        info: createUserInfo(),
+        parts: [createInjectedTonePart(TONE_REGISTRY.roast.prompt), createTextPart("hello")],
+      },
+    ]);
+
+    await transform(TRANSFORM_INPUT, output);
+
+    expect(output.messages[0].parts).toHaveLength(2);
+    expect(output.messages[0].parts[0]).toEqual({
+      type: "text",
+      text: TONE_REGISTRY.mentor.prompt,
+    });
+  });
+
+  it("removes an injected preset when roastEnabled is false", async () => {
+    const configDir = await trackTempDir("server-config-");
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeStateFile(
+      configDir,
+      JSON.stringify({
+        pluginEnabled: true,
+        roastEnabled: false,
+        activeTone: "dry",
+      }),
+    );
+
+    const transform = await createTransform();
+    const output = createOutput([
+      {
+        info: createUserInfo(),
+        parts: [createInjectedTonePart(TONE_REGISTRY.dry.prompt), createTextPart("hello")],
+      },
+    ]);
+
+    await transform(TRANSFORM_INPUT, output);
+
+    expect(output.messages[0].parts).toHaveLength(1);
+    expect(output.messages[0].parts[0]).toMatchObject({ type: "text", text: "hello" });
+  });
+
+  it("keeps matching user text when disabled and there is no clear prior injection", async () => {
+    const configDir = await trackTempDir("server-config-");
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeStateFile(
+      configDir,
+      JSON.stringify({
+        pluginEnabled: true,
+        roastEnabled: false,
+        activeTone: "dry",
+      }),
+    );
+
+    const transform = await createTransform();
+    const output = createOutput([
+      {
+        info: createUserInfo(),
+        parts: [createTextPart(TONE_REGISTRY.dry.prompt)],
+      },
+    ]);
+
+    await transform(TRANSFORM_INPUT, output);
+
+    expect(output.messages[0].parts).toHaveLength(1);
+    expect(output.messages[0].parts[0]).toMatchObject({
+      type: "text",
+      text: TONE_REGISTRY.dry.prompt,
+    });
   });
 
   it("falls back to injecting when state JSON is malformed", async () => {

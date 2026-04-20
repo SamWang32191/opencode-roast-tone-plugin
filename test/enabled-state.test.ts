@@ -8,10 +8,12 @@ import {
   readEnabledState,
   readEnabledStateResult,
   resolveStateFile,
+  writeActiveToneState,
   writeEnabledState,
   writePluginEnabledState,
   writeRoastEnabledState,
 } from "../src/enabled-state.js";
+import { DEFAULT_TONE_ID } from "../src/tone.js";
 
 const originalOpencodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
 const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
@@ -125,7 +127,11 @@ describe("enabled state helpers", () => {
 
     await expect(
       readEnabledState({ directory: configDir, worktree: configDir }),
-    ).resolves.toEqual({ pluginEnabled: true, roastEnabled: true });
+    ).resolves.toEqual({
+      pluginEnabled: true,
+      roastEnabled: true,
+      activeTone: DEFAULT_TONE_ID,
+    });
   });
 
   it("returns both flags enabled when reading the state file hits a non-ENOENT filesystem error", async () => {
@@ -136,7 +142,11 @@ describe("enabled state helpers", () => {
 
     await expect(
       readEnabledState({ directory: blockedPath, worktree: blockedPath }),
-    ).resolves.toEqual({ pluginEnabled: true, roastEnabled: true });
+    ).resolves.toEqual({
+      pluginEnabled: true,
+      roastEnabled: true,
+      activeTone: DEFAULT_TONE_ID,
+    });
   });
 
   it("returns both flags enabled when the state JSON is malformed", async () => {
@@ -147,7 +157,11 @@ describe("enabled state helpers", () => {
 
     await expect(
       readEnabledState({ directory: configDir, worktree: configDir }),
-    ).resolves.toEqual({ pluginEnabled: true, roastEnabled: true });
+    ).resolves.toEqual({
+      pluginEnabled: true,
+      roastEnabled: true,
+      activeTone: DEFAULT_TONE_ID,
+    });
   });
 
   it("reads the new dual-state format", async () => {
@@ -161,7 +175,29 @@ describe("enabled state helpers", () => {
 
     await expect(
       readEnabledState({ directory: configDir, worktree: configDir }),
-    ).resolves.toEqual({ pluginEnabled: false, roastEnabled: true });
+    ).resolves.toEqual({
+      pluginEnabled: false,
+      roastEnabled: true,
+      activeTone: DEFAULT_TONE_ID,
+    });
+  });
+
+  it("falls back activeTone to roast when the new format omits it", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(
+      configDir,
+      JSON.stringify({ pluginEnabled: true, roastEnabled: false }),
+    );
+
+    await expect(
+      readEnabledState({ directory: configDir, worktree: configDir }),
+    ).resolves.toEqual({
+      pluginEnabled: true,
+      roastEnabled: false,
+      activeTone: DEFAULT_TONE_ID,
+    });
   });
 
   it("supports the legacy enabled format", async () => {
@@ -172,7 +208,29 @@ describe("enabled state helpers", () => {
 
     await expect(
       readEnabledState({ directory: configDir, worktree: configDir }),
-    ).resolves.toEqual({ pluginEnabled: false, roastEnabled: false });
+    ).resolves.toEqual({
+      pluginEnabled: false,
+      roastEnabled: false,
+      activeTone: DEFAULT_TONE_ID,
+    });
+  });
+
+  it("keeps legacy enabled as the source of truth when activeTone is also present", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(
+      configDir,
+      JSON.stringify({ enabled: false, activeTone: "mentor" }),
+    );
+
+    await expect(
+      readEnabledState({ directory: configDir, worktree: configDir }),
+    ).resolves.toEqual({
+      pluginEnabled: false,
+      roastEnabled: false,
+      activeTone: "mentor",
+    });
   });
 
   it("prefers new-format fields over legacy enabled when both formats appear", async () => {
@@ -186,7 +244,11 @@ describe("enabled state helpers", () => {
 
     await expect(
       readEnabledState({ directory: configDir, worktree: configDir }),
-    ).resolves.toEqual({ pluginEnabled: true, roastEnabled: true });
+    ).resolves.toEqual({
+      pluginEnabled: true,
+      roastEnabled: true,
+      activeTone: DEFAULT_TONE_ID,
+    });
   });
 
   it("falls back each invalid new-format field independently", async () => {
@@ -200,7 +262,44 @@ describe("enabled state helpers", () => {
 
     await expect(
       readEnabledState({ directory: configDir, worktree: configDir }),
-    ).resolves.toEqual({ pluginEnabled: false, roastEnabled: true });
+    ).resolves.toEqual({
+      pluginEnabled: false,
+      roastEnabled: true,
+      activeTone: DEFAULT_TONE_ID,
+    });
+  });
+
+  it("falls back invalid activeTone independently", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(
+      configDir,
+      JSON.stringify({
+        pluginEnabled: false,
+        roastEnabled: true,
+        activeTone: "chaotic",
+        futureSetting: true,
+      }),
+    );
+
+    await expect(
+      readEnabledStateResult({ directory: configDir, worktree: configDir }),
+    ).resolves.toMatchObject({
+      kind: "partial-invalid-fields",
+      warning: "partial-invalid-fields",
+      state: {
+        pluginEnabled: false,
+        roastEnabled: true,
+        activeTone: DEFAULT_TONE_ID,
+      },
+      raw: {
+        pluginEnabled: false,
+        roastEnabled: true,
+        activeTone: "chaotic",
+        futureSetting: true,
+      },
+    });
   });
 
   it("computes the effective enabled state from both flags", async () => {
@@ -226,7 +325,11 @@ describe("enabled state helpers", () => {
     const stateFile = resolveStateFile(context);
     const contents = await readFile(stateFile, "utf8");
 
-    expect(JSON.parse(contents)).toEqual({ pluginEnabled: false, roastEnabled: false });
+    expect(JSON.parse(contents)).toEqual({
+      pluginEnabled: false,
+      roastEnabled: false,
+      activeTone: DEFAULT_TONE_ID,
+    });
   });
 
   it("writeEnabledState keeps dual-state shape when the existing file uses the new format", async () => {
@@ -243,7 +346,11 @@ describe("enabled state helpers", () => {
 
     const contents = await readFile(resolveStateFile(context), "utf8");
 
-    expect(JSON.parse(contents)).toEqual({ pluginEnabled: false, roastEnabled: false });
+    expect(JSON.parse(contents)).toEqual({
+      pluginEnabled: false,
+      roastEnabled: false,
+      activeTone: DEFAULT_TONE_ID,
+    });
   });
 
   it("writePluginEnabledState merges without overwriting roastEnabled", async () => {
@@ -260,7 +367,11 @@ describe("enabled state helpers", () => {
 
     const contents = await readFile(resolveStateFile(context), "utf8");
 
-    expect(JSON.parse(contents)).toEqual({ pluginEnabled: false, roastEnabled: false });
+    expect(JSON.parse(contents)).toEqual({
+      pluginEnabled: false,
+      roastEnabled: false,
+      activeTone: DEFAULT_TONE_ID,
+    });
   });
 
   it("writeRoastEnabledState only changes roastEnabled", async () => {
@@ -277,7 +388,38 @@ describe("enabled state helpers", () => {
 
     const contents = await readFile(resolveStateFile(context), "utf8");
 
-    expect(JSON.parse(contents)).toEqual({ pluginEnabled: false, roastEnabled: false });
+    expect(JSON.parse(contents)).toEqual({
+      pluginEnabled: false,
+      roastEnabled: false,
+      activeTone: DEFAULT_TONE_ID,
+    });
+  });
+
+  it("writeActiveToneState preserves booleans and unknown top-level fields", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+    const context = { directory: configDir, worktree: configDir };
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(
+      configDir,
+      JSON.stringify({
+        pluginEnabled: false,
+        roastEnabled: true,
+        activeTone: "roast",
+        futureSetting: "keep-me",
+      }),
+    );
+
+    await writeActiveToneState(context, "deadpan");
+
+    const contents = await readFile(resolveStateFile(context), "utf8");
+
+    expect(JSON.parse(contents)).toEqual({
+      pluginEnabled: false,
+      roastEnabled: true,
+      activeTone: "deadpan",
+      futureSetting: "keep-me",
+    });
   });
 
   it("reports legacy state without warning", async () => {
@@ -290,8 +432,11 @@ describe("enabled state helpers", () => {
       readEnabledStateResult({ directory: configDir, worktree: configDir }),
     ).resolves.toEqual({
       kind: "legacy",
-      state: { pluginEnabled: false, roastEnabled: false },
-      warning: undefined,
+      state: {
+        pluginEnabled: false,
+        roastEnabled: false,
+        activeTone: DEFAULT_TONE_ID,
+      },
       raw: { enabled: false },
     });
   });
@@ -307,8 +452,11 @@ describe("enabled state helpers", () => {
     ).resolves.toEqual({
       kind: "invalid-file",
       warning: "invalid-file",
-      state: { pluginEnabled: true, roastEnabled: true },
-      raw: undefined,
+      state: {
+        pluginEnabled: true,
+        roastEnabled: true,
+        activeTone: DEFAULT_TONE_ID,
+      },
     });
   });
 
@@ -323,7 +471,11 @@ describe("enabled state helpers", () => {
     ).resolves.toEqual({
       kind: "invalid-file",
       warning: "invalid-file",
-      state: { pluginEnabled: true, roastEnabled: true },
+      state: {
+        pluginEnabled: true,
+        roastEnabled: true,
+        activeTone: DEFAULT_TONE_ID,
+      },
       raw: { futureSetting: true },
     });
   });
@@ -377,6 +529,29 @@ describe("enabled state helpers", () => {
       futureSetting: true,
       pluginEnabled: true,
       roastEnabled: true,
+      activeTone: DEFAULT_TONE_ID,
+    });
+  });
+
+  it("writeEnabledState preserves activeTone when normalizing legacy files", async () => {
+    const configDir = await trackTempDir("enabled-config-");
+    const context = { directory: configDir, worktree: configDir };
+
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeRawStateFile(
+      configDir,
+      JSON.stringify({ enabled: false, activeTone: "mentor", futureSetting: true }),
+    );
+
+    await writeEnabledState(context, true);
+
+    const contents = await readFile(resolveStateFile(context), "utf8");
+
+    expect(JSON.parse(contents)).toEqual({
+      pluginEnabled: true,
+      roastEnabled: true,
+      activeTone: "mentor",
+      futureSetting: true,
     });
   });
 
@@ -397,6 +572,7 @@ describe("enabled state helpers", () => {
     expect(JSON.parse(contents)).toEqual({
       pluginEnabled: true,
       roastEnabled: false,
+      activeTone: DEFAULT_TONE_ID,
       futureSetting: "keep-me",
     });
   });
@@ -416,6 +592,7 @@ describe("enabled state helpers", () => {
       futureSetting: true,
       pluginEnabled: true,
       roastEnabled: false,
+      activeTone: DEFAULT_TONE_ID,
     });
   });
 
@@ -433,6 +610,7 @@ describe("enabled state helpers", () => {
     expect(JSON.parse(contents)).toEqual({
       pluginEnabled: true,
       roastEnabled: false,
+      activeTone: DEFAULT_TONE_ID,
     });
   });
 
