@@ -149,38 +149,109 @@ describe("SettingsDialog", () => {
     dialog.dispose();
   });
 
-  it("opens the tone picker when Active tone is selected", async () => {
+  it("cycles to the next tone with Right on the Active tone row", () => {
     const dialog = mountDialog({
       initialValue: { roastEnabled: false, activeTone: "mentor" },
     });
+    dialog.dialog().onMove?.(dialog.dialog().options[1]!);
 
-    await dialog.dialog().onSelect?.(dialog.dialog().options[1]!);
+    const event = {
+      name: "right",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } satisfies KeyboardEventLike;
 
-    expect(dialog.dialog()).toMatchObject({
-      title: "Select tone",
-      current: "mentor",
-    });
-    expect(dialog.dialog().options).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ title: "Roast", value: "roast" }),
-        expect.objectContaining({ title: "Dry", value: "dry" }),
-        expect.objectContaining({ title: "Deadpan", value: "deadpan" }),
-        expect.objectContaining({ title: "Mentor", value: "mentor" }),
-      ]),
-    );
+    lastKeyboardHandler?.(event);
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(dialog.selectTone).toHaveBeenCalledWith("roast");
 
     dialog.dispose();
   });
 
-  it("selects a tone from the tone picker", async () => {
-    const dialog = mountDialog();
+  it("cycles to the previous tone with Left on the Active tone row", () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: false, activeTone: "roast" },
+    });
+    dialog.dialog().onMove?.(dialog.dialog().options[1]!);
+
+    const event = {
+      name: "left",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } satisfies KeyboardEventLike;
+
+    lastKeyboardHandler?.(event);
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(dialog.selectTone).toHaveBeenCalledWith("mentor");
+
+    dialog.dispose();
+  });
+
+  it("does not open a second dialog when Enter is pressed on Active tone", async () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: false, activeTone: "mentor" },
+    });
+    dialog.dialog().onMove?.(dialog.dialog().options[1]!);
 
     await dialog.dialog().onSelect?.(dialog.dialog().options[1]!);
-    await dialog.dialog().onSelect?.(
-      dialog.dialog().options.find((option) => option.value === "deadpan")!,
-    );
 
-    expect(dialog.selectTone).toHaveBeenCalledWith("deadpan");
+    expect(dialog.dialog()).toMatchObject({
+      title: "Roast Tone settings",
+      current: "activeTone",
+    });
+    expect(dialog.selectTone).not.toHaveBeenCalled();
+
+    dialog.dispose();
+  });
+
+  it("ignores Left and Right while Active tone is saving", () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: true, activeTone: "deadpan" },
+      initialSavingField: "activeTone",
+    });
+    dialog.dialog().onMove?.(dialog.dialog().options[1]!);
+
+    const event = {
+      name: "right",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } satisfies KeyboardEventLike;
+
+    lastKeyboardHandler?.(event);
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopPropagation).not.toHaveBeenCalled();
+    expect(dialog.selectTone).not.toHaveBeenCalled();
+
+    event.name = "left";
+    lastKeyboardHandler?.(event);
+
+    expect(dialog.selectTone).not.toHaveBeenCalled();
+
+    dialog.dispose();
+  });
+
+  it("treats Space as a no-op on the Active tone row", () => {
+    const dialog = mountDialog({
+      initialValue: { roastEnabled: false, activeTone: "dry" },
+    });
+    dialog.dialog().onMove?.(dialog.dialog().options[1]!);
+
+    const event = {
+      name: "space",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } satisfies KeyboardEventLike;
+
+    lastKeyboardHandler?.(event);
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(dialog.selectTone).not.toHaveBeenCalled();
 
     dialog.dispose();
   });

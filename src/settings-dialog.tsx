@@ -3,15 +3,13 @@ import { useKeyboard } from "@opentui/solid";
 import type { TuiPlugin } from "@opencode-ai/plugin/tui";
 import { createEffect, createMemo, createSignal } from "solid-js";
 
-import { TONE_IDS, getToneDefinition, isToneId, type ToneId } from "./tone.js";
+import { TONE_IDS, getToneDefinition, type ToneId } from "./tone.js";
 
 type Api = Parameters<TuiPlugin>[0];
 
 export type ToggleField = "roastEnabled";
 export type PickerField = "activeTone";
 export type Field = ToggleField | PickerField;
-type DialogValue = Field | ToneId;
-type DialogMode = "settings" | "tone-picker";
 
 export type SettingsState = {
   roastEnabled: boolean;
@@ -48,6 +46,18 @@ const status = (value: boolean) => {
   return value ? "ON" : "OFF";
 };
 
+const cycleTone = (activeTone: ToneId, direction: "left" | "right") => {
+  const currentIndex = TONE_IDS.indexOf(activeTone);
+
+  if (currentIndex < 0) {
+    return activeTone;
+  }
+
+  const delta = direction === "left" ? -1 : 1;
+  const nextIndex = (currentIndex + delta + TONE_IDS.length) % TONE_IDS.length;
+  return TONE_IDS[nextIndex] ?? activeTone;
+};
+
 export const SettingsDialog = (props: {
   api: Api;
   value: () => SettingsState;
@@ -56,8 +66,7 @@ export const SettingsDialog = (props: {
   selectTone: (toneId: ToneId) => void | Promise<void>;
 }) => {
   const [filterQuery, setFilterQuery] = createSignal("");
-  const [mode, setMode] = createSignal<DialogMode>("settings");
-  const [current, setCurrent] = createSignal<DialogValue | undefined>("roastEnabled");
+  const [current, setCurrent] = createSignal<Field | undefined>("roastEnabled");
   const theme = createMemo(() => props.api.theme.current);
 
   const visibleRows = createMemo(() => {
@@ -75,14 +84,10 @@ export const SettingsDialog = (props: {
   });
 
   createEffect(() => {
-    if (mode() === "tone-picker") {
-      return;
-    }
-
     const visible = visibleRows();
     const nextCurrent = current();
 
-    if (field(nextCurrent) && visible.some((row) => row.key === nextCurrent)) {
+    if (nextCurrent !== undefined && visible.some((row) => row.key === nextCurrent)) {
       return;
     }
 
@@ -112,98 +117,86 @@ export const SettingsDialog = (props: {
     });
   });
 
-  const toneOptions = createMemo(() => {
-    const savingField = props.savingField();
-
-    return TONE_IDS.map((toneId) => {
-      const tone = getToneDefinition(toneId);
-
-      return {
-        title: tone.title,
-        value: tone.id,
-        description: tone.description,
-        category: "Tone",
-        footer: props.value().activeTone === toneId ? "Selected" : undefined,
-        disabled: savingField !== undefined,
-      };
-    });
-  });
-
   useKeyboard((event) => {
-    if (mode() !== "settings") {
+    const activeField = current();
+
+    if (!activeField || props.savingField()) {
       return;
     }
 
-    const activeField = field(current());
+    if (activeField === "roastEnabled") {
+      if (event.name === "space" || event.name === "left" || event.name === "right") {
+        event.preventDefault();
+        event.stopPropagation();
+        void props.flip("roastEnabled");
+      }
 
-    if (activeField !== "roastEnabled" || props.savingField()) {
       return;
     }
 
-    if (event.name === "space" || event.name === "left" || event.name === "right") {
+    if (event.name === "left" || event.name === "right") {
       event.preventDefault();
       event.stopPropagation();
-      void props.flip("roastEnabled");
+      void props.selectTone(cycleTone(props.value().activeTone, event.name));
+      return;
+    }
+
+    if (event.name === "space") {
+      event.preventDefault();
+      event.stopPropagation();
     }
   });
 
   return (
     <box flexDirection="column">
       <props.api.ui.DialogSelect
-        title={mode() === "settings" ? "Roast Tone settings" : "Select tone"}
-        placeholder={mode() === "settings" ? "Filter settings" : "Filter tones"}
-        options={mode() === "settings" ? settingsOptions() : toneOptions()}
+        title="Roast Tone settings"
+        placeholder="Filter settings"
+        options={settingsOptions()}
         current={current()}
         onFilter={(query) => {
           setFilterQuery(query);
         }}
         onMove={(item) => {
-          setCurrent(item.value as DialogValue);
+          setCurrent(field(item.value));
         }}
         onSelect={async (item) => {
-          if (mode() === "settings") {
-            const nextField = field(item.value);
+          const nextField = field(item.value);
 
-            if (!nextField || props.savingField()) {
-              return;
-            }
-
-            setCurrent(nextField);
-
-            if (nextField === "roastEnabled") {
-              await props.flip("roastEnabled");
-              return;
-            }
-
-            setMode("tone-picker");
-            setCurrent(props.value().activeTone);
+          if (!nextField || props.savingField()) {
             return;
           }
 
-          if (!isToneId(item.value) || props.savingField()) {
+          setCurrent(nextField);
+
+          if (nextField === "roastEnabled") {
+            await props.flip("roastEnabled");
             return;
           }
-
-          await props.selectTone(item.value);
-          setMode("settings");
-          setCurrent("activeTone");
         }}
       />
       <box
         paddingRight={2}
         paddingLeft={4}
-        flexDirection="row"
-        gap={2}
+        flexDirection="column"
         paddingTop={1}
         paddingBottom={1}
         flexShrink={0}
       >
         <text>
           <span style={{ fg: theme().text }}>
-            <b>{mode() === "settings" ? "toggle" : "select"}</b>{" "}
+            <b>toggle</b>{" "}
           </span>
           <span style={{ fg: theme().textMuted }}>
-            {mode() === "settings" ? "space enter left/right" : "enter"}
+            Tone enabled: space enter left/right
+          </span>
+        </text>
+        <text>
+          <span style={{ fg: theme().text }}>
+            <b>adjust</b>{" "}
+          </span>
+          <span style={{ fg: theme().textMuted }}>
+            Active tone: left/right
           </span>
         </text>
       </box>
