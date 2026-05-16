@@ -24,6 +24,21 @@ If you would rather configure plugins directly, use:
 { "plugin": ["opencode-roast-tone-plugin@latest"] }
 ```
 
+For TUI plugin discovery, add the plugin to `~/.config/opencode/tui.json`:
+
+```json
+{
+  "plugin": [
+    "opencode-roast-tone-plugin"
+  ]
+}
+```
+
+If your `plugin` list already contains other entries, add
+`"opencode-roast-tone-plugin"` alongside them. OpenCode also supports plugin
+entries with options as `[pluginName, options]`; this plugin does not require
+options.
+
 ## TUI controls in OpenCode
 
 This plugin now has **two** TUI control surfaces:
